@@ -1,0 +1,13 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends rpcbind \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY common/rpcbind-only-entrypoint.sh /usr/local/bin/rpcbind-only-entrypoint.sh
+RUN chmod +x /usr/local/bin/rpcbind-only-entrypoint.sh
+
+EXPOSE 111/tcp 111/udp
+
+# rpcbind is reachable, but NFS TCP/2049 is intentionally absent.
+ENTRYPOINT ["/usr/local/bin/rpcbind-only-entrypoint.sh"]

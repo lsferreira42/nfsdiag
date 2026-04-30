@@ -1,0 +1,13 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 rpcbind \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY common/tcp-listener.py /usr/local/bin/tcp-listener.py
+RUN chmod +x /usr/local/bin/tcp-listener.py
+
+EXPOSE 111/tcp 111/udp 2049/tcp
+
+# rpcbind is reachable and TCP/2049 accepts connections, but no real mountd/NFS RPC service exists.
+ENTRYPOINT ["/bin/sh", "-c", "mkdir -p /run/rpcbind && rpcbind -w && LISTEN_PORT=2049 exec python3 /usr/local/bin/tcp-listener.py"]

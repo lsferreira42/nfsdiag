@@ -1,0 +1,20 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nfs-kernel-server nfs-common rpcbind iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /export/current && chmod 0777 /export /export/current && echo stale-fixture > /export/current/README.txt
+COPY common/exports.stale /etc/exports
+COPY common/kernel-nfs-entrypoint.sh /usr/local/bin/kernel-nfs-entrypoint.sh
+RUN chmod +x /usr/local/bin/kernel-nfs-entrypoint.sh
+
+ENV EXPORT_SUBDIR=current
+ENV EXPORT_MARKER=stale-fixture
+ENV STALE_LOOP_PATH=/export/current
+ENV STALE_LOOP_INTERVAL=1
+
+EXPOSE 111/tcp 111/udp 2049/tcp 2049/udp
+
+# The exported directory is renamed/recreated in a loop to try to provoke ESTALE during client operations.
+ENTRYPOINT ["/usr/local/bin/kernel-nfs-entrypoint.sh"]

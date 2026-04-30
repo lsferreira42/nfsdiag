@@ -1,0 +1,18 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nfs-kernel-server nfs-common rpcbind iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /export && echo permission-denied-fixture > /export/README.txt && chmod 0000 /export
+COPY common/exports.all-squash /etc/exports
+COPY common/kernel-nfs-entrypoint.sh /usr/local/bin/kernel-nfs-entrypoint.sh
+RUN chmod +x /usr/local/bin/kernel-nfs-entrypoint.sh
+
+ENV EXPORT_MODE=0000
+ENV EXPORT_MARKER=permission-denied-fixture
+
+EXPOSE 111/tcp 111/udp 2049/tcp 2049/udp
+
+# The export policy allows mounting, but all clients are squashed to nobody and the directory mode is 0000.
+ENTRYPOINT ["/usr/local/bin/kernel-nfs-entrypoint.sh"]

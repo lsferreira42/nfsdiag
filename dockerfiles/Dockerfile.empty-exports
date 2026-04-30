@@ -1,0 +1,15 @@
+FROM debian:bookworm-slim
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nfs-kernel-server nfs-common rpcbind iproute2 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /export && chmod 0777 /export
+COPY common/exports.empty /etc/exports
+COPY common/kernel-nfs-entrypoint.sh /usr/local/bin/kernel-nfs-entrypoint.sh
+RUN chmod +x /usr/local/bin/kernel-nfs-entrypoint.sh
+
+EXPOSE 111/tcp 111/udp 2049/tcp 2049/udp
+
+# Starts an NFS stack with an intentionally empty /etc/exports.
+ENTRYPOINT ["/usr/local/bin/kernel-nfs-entrypoint.sh"]

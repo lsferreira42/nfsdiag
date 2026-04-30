@@ -1,0 +1,1 @@
+/export 192.0.2.0/24(rw,sync,no_subtree_check,no_root_squash,insecure)
