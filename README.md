@@ -14,27 +14,38 @@ Today `nfs-doctor` can do these checks:
 
 - test if `rpcbind` TCP port `111` is reachable
 - test if NFS TCP port `2049` is reachable
-- query the RPC service map from rpcbind
+- query the RPC service map from rpcbind (supports IPv6 fallback)
 - detect registered NFS, mountd, lockd/NLM and statd/NSM services
-- test NFS v2, v3 and v4 with RPC `NULLPROC`
+- test NFS v2, v3 and v4 with RPC `NULLPROC` (including v4.1 and v4.2 hints)
 - test mountd v1, v2 and v3
 - optionally test RPC over UDP with `--udp`
 - enumerate exports using mountd
+- check client prerequisite daemons (nfs-client.target, rpc.gssd, nfs-idmapd)
+- detect Kerberos tickets and configuration with `--krb5`
 - mount exports automatically under `/tmp/nfsdoctor-*`
-- try NFS v4 first, then fallback to NFS v3
-- run filesystem checks after mount
+- try NFS v4.2 first, then fallback to v4.1, v4, and v3
+- parse and verify effective mount options from `/proc/self/mountinfo`
+- capture RPC stats (retransmissions, auth refreshes) before and after tests
+- extract deep latency metrics from `/proc/self/mountstats`
+- run filesystem checks after mount (close-to-open consistency, special files, quotas)
 - test read/traverse permission
 - test directory listing
-- test ACL xattr visibility
-- test create/write/read/fsync when allowed
+- test POSIX ACLs, NFSv4 ACLs, generic xattrs, and SELinux contexts
+- test create/write/read/fsync when allowed (with configurable timeouts)
+- test advanced I/O operations: `copy_file_range`, `fallocate`, and `O_DIRECT`
 - test advisory locks with `fcntl`
 - detect practical `root_squash` behavior
-- simulate UID/GID access
+- simulate UID/GID access with `prctl` termination safety
 - simulate supplemental groups with `--groups`
 - run metadata latency test with create/rename/unlink
 - run stale file handle loop looking for `ESTALE`
-- cleanup temporary files, mounts and folders
-- generate JSON report for automation
+- check for pNFS layouts and NFSoRDMA connectivity
+- run external `fio` benchmarks alongside internal smoke tests
+- safely handle temporary files, mounts and folders using `O_NOFOLLOW`
+- perform safe audits with `--dry-run` and rate limiting (`--delay-ms`)
+- generate hierarchical JSON reports for automation
+- generate standalone HTML reports with inline CSS and Base64 (`--html`)
+- output colored text and progress bars on interactive terminals
 - run Docker fixture tests for regression checks
 
 By default the output is compact. If you want all details, use `--verbose`.
@@ -224,10 +235,24 @@ The JSON includes:
 - tool name
 - host
 - timestamp
-- summary
+- system information (kernel, hostname, arch)
+- summary (ok, warn, fail)
 - options used
-- events
+- exports (hierarchical list of mount tests with performance metrics, ACLs, etc)
+- global events
 - recommendations
+
+---
+
+## HTML output
+
+For human-readable reports that can be easily shared or attached to tickets, use HTML:
+
+```sh
+./nfsdiag --html=report.html 192.168.1.10
+```
+
+The generated HTML file is fully standalone.
 
 ---
 
@@ -275,7 +300,13 @@ Change stale handle loop:
 sudo ./nfsdiag --stale-iterations 1000 192.168.1.10
 ```
 
-The performance test is only a smoke test. It is not a replacement for `fio`, `nfsiostat`, Prometheus, Grafana, or a real benchmark.
+Run benchmarks using `fio` instead of the internal C loop (requires `fio` installed):
+
+```sh
+sudo ./nfsdiag --bench-type=fio 192.168.1.10
+```
+
+The performance test is only a smoke test. It is not a replacement for full benchmarking, though enabling `fio` provides more accurate storage baseline metrics.
 
 ---
 
@@ -285,6 +316,18 @@ Timeout for external commands like `mount` and `umount`:
 
 ```sh
 sudo ./nfsdiag --command-timeout 15 192.168.1.10
+```
+
+Delay between testing each export (rate limiting):
+
+```sh
+sudo ./nfsdiag --delay-ms 500 192.168.1.10
+```
+
+Simulate the tool execution without actually mounting or modifying anything:
+
+```sh
+./nfsdiag --dry-run 192.168.1.10
 ```
 
 Try to isolate live mounts in a private mount namespace:
@@ -343,12 +386,14 @@ Options:
       --groups G1,G2         Supplemental groups for simulation
       --timeout SEC          Network/RPC timeout
       --command-timeout SEC  Timeout for mount/umount commands
+      --fs-timeout SEC       Timeout for filesystem operations in benchmarks
       --mount-namespace      Use private mount namespace when possible
       --json[=PATH]          Write JSON report
       --udp                  Probe RPC over UDP too
       --ipv4-only            Force IPv4 direct TCP checks
       --ipv6-only            Force IPv6 direct TCP checks
       --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback
+      --krb5                 Check Kerberos prerequisites (ticket, gssd)
       --bench-iterations N   Metadata latency iterations
       --stale-iterations N   ESTALE loop iterations
       --bench-bytes BYTES    Bytes used in read/write smoke test
@@ -427,16 +472,17 @@ The current fixture set includes:
 
 This version has these improvements:
 
-1. timeout for external commands
-2. cleanup with `atexit` and signal handling
-3. JSON-only output
-4. optional mount namespace
-5. NFSv4 pseudo-root fallback
-6. UDP and IPv4/IPv6 controls
-7. supplemental group simulation
-8. recommendations based on symptoms
-9. metadata latency benchmark
-10. automated Docker fixture tests
+1. fully modular C architecture
+2. hierarchical per-export JSON output
+3. timeouts for filesystem operations (`--fs-timeout`)
+4. robust FD leak prevention and `poll()` migration
+5. deep metrics via `/proc/self/mountstats` and `mountinfo`
+6. RPC stats monitoring (`/proc/net/rpc/nfs`) for retransmissions
+7. client daemon prerequisite checks (`rpcbind`, `nfs-client.target`, `idmapd`)
+8. Kerberos detection and support (`--krb5`, `gssd` checks)
+9. NFSv4 ACL detection (`system.nfs4_acl`)
+10. NFSv4.1 and NFSv4.2 cascading mount support
+11. real IPv6 RPC support
 
 ---
 

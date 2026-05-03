@@ -7,7 +7,9 @@ BINDIR ?= $(PREFIX)/bin
 DESTDIR ?=
 
 TARGET := nfsdiag
-SRC := nfsdiag.c
+SRCDIR := src
+SRCS := $(wildcard $(SRCDIR)/*.c)
+OBJS := $(SRCS:.c=.o)
 
 TIRPC_CFLAGS := $(shell $(PKG_CONFIG) --cflags libtirpc 2>/dev/null)
 TIRPC_LIBS := $(shell $(PKG_CONFIG) --libs libtirpc 2>/dev/null)
@@ -24,7 +26,7 @@ CFLAGS ?= -O2 -Wall -Wextra
 LDFLAGS ?=
 LDLIBS ?=
 
-CPPFLAGS += $(TIRPC_CFLAGS)
+CPPFLAGS += -D_GNU_SOURCE $(TIRPC_CFLAGS)
 LDLIBS += $(TIRPC_LIBS)
 
 DOCKER ?= docker
@@ -35,8 +37,11 @@ DOCKER_TAG_PREFIX ?= nfs-doctor-fixture
 
 all: $(TARGET)
 
-$(TARGET): $(SRC)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(LDFLAGS) $< $(LDLIBS) -o $@
+$(TARGET): $(OBJS)
+	$(CC) $(LDFLAGS) $^ $(LDLIBS) -o $@
+
+$(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/nfsdiag.h
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 rebuild: clean all
 
@@ -52,7 +57,7 @@ uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
 
 clean:
-	rm -f $(TARGET) *.o
+	rm -f $(TARGET) $(SRCDIR)/*.o
 
 distclean: clean
 	rm -rf .cache
