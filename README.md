@@ -1,8 +1,11 @@
-# nfs-doctor (nfsdiag)
+# nfsdiag
 
 **Website:** [www.nfsdiag.org](https://www.nfsdiag.org) · **Releases:** [github.com/lsferreira42/nfsdiag/releases/latest](https://github.com/lsferreira42/nfsdiag/releases/latest)
 
-`nfs-doctor` is a small command line tool written in C to help debug NFS servers from the client side.
+[![CI](https://github.com/lsferreira42/nfsdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/lsferreira42/nfsdiag/actions/workflows/ci.yml)
+[![Deploy website to Cloudflare](https://github.com/lsferreira42/nfsdiag/actions/workflows/deploy-website.yml/badge.svg)](https://github.com/lsferreira42/nfsdiag/actions/workflows/deploy-website.yml)
+
+`nfsdiag` is a small command line tool written in C to help debug NFS servers from the client side.
 
 The idea is simple: you give one IP or hostname, and the tool checks the things that usually break in NFS: network, rpcbind, NFS versions, mountd, exports, permissions, root squash, locking, stale handles and some basic performance.
 
@@ -12,7 +15,7 @@ It is not magic, and it will not replace a good server side analysis. But it hel
 
 ## What this tool does
 
-Today `nfs-doctor` can do these checks:
+Today `nfsdiag` can do these checks:
 
 - test if `rpcbind` TCP port `111` is reachable
 - test if NFS TCP port `2049` is reachable
@@ -133,7 +136,7 @@ sudo make install
 Install in another prefix:
 
 ```sh
-make PREFIX=/opt/nfs-doctor install
+make PREFIX=/opt/nfsdiag install
 ```
 
 Uninstall:
@@ -569,57 +572,6 @@ The current fixture set includes:
 - `locking-missing`
 - `stale-handle`
 - `slow-performance`
-
----
-
-## What changed in v0.2.0
-
-Security and crash fixes:
-
-- `strdup()` return now checked in `add_event()` and `add_recommendation()` — prevents NULL dereference under OOM
-- Report files opened with `O_NOFOLLOW | O_CREAT | 0600` — prevents symlink attacks when running as root
-- XDR string limits applied to export paths (4096 bytes) and group names (256 bytes) — prevents memory exhaustion from malicious servers
-- `fio` benchmarks now use `execvp` argv array instead of `sh -c` — eliminates unnecessary shell injection surface
-- Numeric CLI arguments reject empty strings — `--uid=` is now an error, not silent zero
-
-Behavioral fixes:
-
-- `--json=file` no longer suppresses stdout; use `--quiet` to suppress explicitly
-- `--html=-` (HTML to stdout) now suppresses diagnostic text correctly
-- `--dry-run` no longer runs filesystem diagnostics on local temp dir
-- Write/read benchmark, advisory lock, and root_squash detection are now independent tests, each with its own timeout and temp file
-- `enumerate_exports()` now tries mountd v2 between v3 and v1
-- IPv6 literal addresses get brackets in mount source (`[addr]:/export`)
-- NFS minor version (4.1, 4.2) now tracked in JSON and HTML reports
-
-Robustness:
-
-- Pipe drain continues discarding data when output buffer is full — no more stall-until-timeout on large command output
-- `dup2()` return checked in child process
-- `sscanf()` return checked when parsing `/proc/net/rpc/nfs`
-- RPC counter wrap/reset detected when computing stats delta
-- `clnt_create()` and `pmap_getmaps()` protected with SIGALRM-based timeout
-- Report buffer increased from 512 to 2048 bytes — long error messages no longer truncate silently
-- Mountpoint option detection uses exact comma-separated token matching
-- Mountstats section matched by exact mountpoint field, not substring
-- Signal handlers installed without `SA_RESTART` for more responsive interruption
-
-Constants and consistency:
-
-- `RPCBIND_PORT`, `NFS_PORT`, `DEFAULT_COMMAND_TIMEOUT_SEC`, `DEFAULT_BENCH_ITERATIONS` defined in `nfsdiag.h`
-- Mountpoint buffer changed from 256 to 4096 bytes
-- Test runner now uses `mktemp` instead of predictable `/tmp` filenames
-- All 14 fixtures now included in `ALL_FIXTURES` (was 9)
-
-Portability and other:
-
-- `TMPDIR` environment variable respected for temp workspace location
-- Client daemon checks skipped gracefully on non-systemd systems
-- `TEST_TIMEOUT` now applied to each `nfsdiag` invocation in the test runner
-- `--version` / `-V` flag added
-- CLI options reorganised into logical groups (Diagnostic / Timeout / Benchmark / Output)
-- All default values shown in `--help` using named constants
-- Fixture `exports.*` files and entrypoint marked with "TEST-ONLY" comments
 
 ---
 
