@@ -1,5 +1,7 @@
 # nfs-doctor (nfsdiag)
 
+**Website:** [www.nfsdiag.org](https://www.nfsdiag.org) · **Releases:** [github.com/lsferreira42/nfsdiag/releases/latest](https://github.com/lsferreira42/nfsdiag/releases/latest)
+
 `nfs-doctor` is a small command line tool written in C to help debug NFS servers from the client side.
 
 The idea is simple: you give one IP or hostname, and the tool checks the things that usually break in NFS: network, rpcbind, NFS versions, mountd, exports, permissions, root squash, locking, stale handles and some basic performance.

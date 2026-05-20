@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nfsdiag — diagnose NFS servers from the client side</title>
+    <meta
+      name="description"
+      content="nfsdiag is a small C tool that walks the NFS stack from the wire up: network, rpcbind, NFS versions, mountd, exports, mount, permissions, root squash, locking, stale handles, performance. One IP, one command."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="canonical" href="https://www.nfsdiag.org/" />
+    <meta property="og:url" content="https://www.nfsdiag.org/" />
+    <link rel="stylesheet" href="website/site.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("nfsdiag-theme");
+          if (t === "dark" || t === "light") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- ── reusable mark symbol (folder + EKG pulse) ────────────────── -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="nfsdiag-mark" viewBox="0 0 64 64">
+          <path
+            class="folder"
+            d="M 8 14 H 24 L 28 18 H 56 V 52 H 8 Z"
+            fill="none"
+            stroke-width="4.5"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <path
+            class="pulse"
+            d="M 0 35 H 20 L 23 29 L 28 43 L 34 21 L 40 47 L 44 35 H 64"
+            fill="none"
+            stroke-width="4.5"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- ── nav ──────────────────────────────────────────────────────── -->
+    <header class="nav">
+      <div class="nav__inner">
+        <a class="nav__brand" href="#top">
+          <svg class="mark" width="22" height="22" viewBox="0 0 64 64" aria-label="nfsdiag">
+            <use href="#nfsdiag-mark"></use>
+          </svg>
+          <span class="wm">nfs<span class="wm__diag">diag</span></span>
+        </a>
+        <nav class="nav__links" aria-label="primary">
+          <a href="#install">install</a>
+          <a href="#checks" class="nav__hide-sm">checks</a>
+          <a href="#usage">usage</a>
+          <a href="docs.html">docs</a>
+          <span class="nav__sep nav__hide-sm">│</span>
+          <button
+            class="nav__btn"
+            type="button"
+            id="theme-btn"
+            aria-label="toggle theme"
+            title="toggle theme"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4" />
+              <path d="M 8 2 A 6 6 0 0 1 8 14 Z" fill="currentColor" />
+            </svg>
+          </button>
+          <a class="nav__ext" href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">github ↗</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="top">
+      <!-- ── manpage header line ────────────────────────────────────── -->
+      <div class="manhead" aria-hidden="true">
+        <span>NFSDIAG(1)</span>
+        <span>General Commands Manual</span>
+        <span>NFSDIAG(1)</span>
+      </div>
+
+      <!-- ── manpage hero (NAME / SYNOPSIS / DESCRIPTION) ───────────── -->
+      <section class="manpage">
+        <h2>NAME</h2>
+        <p class="desc">
+          <strong>nfsdiag</strong> — diagnose NFS servers from the client side.
+        </p>
+
+        <h2>SYNOPSIS</h2>
+        <p class="opts">
+          <strong>nfsdiag</strong>
+          <span class="arg">[OPTIONS]</span>
+          <span class="arg">&lt;server-ip-or-hostname&gt;</span>
+        </p>
+
+        <h2>DESCRIPTION</h2>
+        <p>
+          Walks the NFS stack from the wire up: TCP reachability, rpcbind, NFS
+          v2/v3/v4/v4.1/v4.2 probes, mountd, exports, mount cascade,
+          permissions, root squash, ACLs, locking, stale handles, performance.
+        </p>
+        <p>
+          One IP, one command. Compact text by default. JSON and standalone
+          HTML when you need it. Safe by default — dry-run, rate limiting,
+          mount namespace, <code>O_NOFOLLOW</code> everywhere.
+        </p>
+        <p>
+          Written in C99 against <code>libtirpc</code>. ~3,000 lines. MIT.
+          Current version: <strong>0.3.0</strong>.
+        </p>
+
+        <!-- ── terminal mock ───────────────────────────────────────── -->
+        <div class="terminal" role="img" aria-label="example nfsdiag output">
+          <div class="terminal__head">
+            <div class="terminal__lights">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="terminal__title">nfsdiag — 192.168.1.10</div>
+            <div style="width: 50px"></div>
+          </div>
+<pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag 192.168.1.10
+nfsdiag 0.3.0: 192.168.1.10
+<span class="ok">[OK]</span> rpcbind on tcp/111
+<span class="ok">[OK]</span> nfs on tcp/2049
+<span class="ok">[OK]</span> 1 export(s) discovered
+<span class="ok">[OK]</span> mounted /tmp/nfsdoctor-AbC/export-1 <span class="dim">(v4.2)</span>
+<span class="ok">[OK]</span> read · write · fsync passed
+<span class="ok">[OK]</span> root_squash detected <span class="dim">(uid 0 → nobody)</span>
+summary: <span class="ok">ok=13</span> <span class="dim">warn=0  fail=0</span>
+<span class="prompt">$</span> <span class="cursor"></span></pre>
+        </div>
+      </section>
+
+      <!-- ── install ────────────────────────────────────────────────── -->
+      <section class="section" id="install">
+        <h2 class="section__title">
+          <a class="section__hash" href="#install">#</a>
+          install
+          <svg
+            class="section__pulse"
+            viewBox="0 0 200 14"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200"
+              stroke="currentColor"
+              stroke-width="1"
+              fill="none"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+        </h2>
+
+        <div class="cols">
+          <pre><code class="block"><span class="code__d"># Debian / Ubuntu</span>
+sudo apt-get install -y \
+  build-essential \
+  pkg-config \
+  libtirpc-dev \
+  nfs-common
+
+git clone https://github.com/lsferreira42/nfsdiag
+cd nfsdiag &amp;&amp; make
+sudo make install</code></pre>
+
+          <pre><code class="block"><span class="code__d"># Fedora / RHEL</span>
+sudo dnf install -y \
+  gcc make \
+  pkgconf-pkg-config \
+  libtirpc-devel \
+  nfs-utils
+
+git clone https://github.com/lsferreira42/nfsdiag
+cd nfsdiag &amp;&amp; make
+sudo make install</code></pre>
+        </div>
+
+        <p class="lede" style="margin-top: 20px;">
+          Pre-built packages (<code class="inline">.deb</code>, <code class="inline">.rpm</code>,
+          <code class="inline">.apk</code>) are available on the
+          <a href="https://github.com/lsferreira42/nfsdiag/releases/latest" target="_blank" rel="noopener">latest GitHub release ↗</a>.
+          To build from source see <a href="docs.html#packaging">packaging</a>.
+        </p>
+      </section>
+
+      <!-- ── what it checks ─────────────────────────────────────────── -->
+      <section class="section" id="checks">
+        <h2 class="section__title">
+          <a class="section__hash" href="#checks">#</a>
+          what it checks
+          <svg
+            class="section__pulse"
+            viewBox="0 0 200 14"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200"
+              stroke="currentColor"
+              stroke-width="1"
+              fill="none"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+        </h2>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>network</th>
+              <td>
+                rpcbind <code class="inline">tcp/111</code> · NFS
+                <code class="inline">tcp/2049</code> · IPv4/IPv6 with fallback
+                · optional UDP probe
+              </td>
+            </tr>
+            <tr>
+              <th>rpc</th>
+              <td>
+                service map from rpcbind · mountd v1/v2/v3 · NFS v2/v3/v4/v4.1/v4.2
+                <code class="inline">NULLPROC</code> probes · lockd/NLM · statd/NSM
+              </td>
+            </tr>
+            <tr>
+              <th>mount</th>
+              <td>
+                v4.2 → v4.1 → v4 → v3 cascade · effective options parsed from
+                <code class="inline">/proc/self/mountinfo</code>
+              </td>
+            </tr>
+            <tr>
+              <th>fs</th>
+              <td>
+                close-to-open consistency · read · write ·
+                <code class="inline">fsync</code> · directory listing ·
+                <code class="inline">copy_file_range</code> ·
+                <code class="inline">fallocate</code> ·
+                <code class="inline">O_DIRECT</code>
+              </td>
+            </tr>
+            <tr>
+              <th>acl</th>
+              <td>POSIX ACLs · NFSv4 ACLs · generic xattrs · SELinux contexts</td>
+            </tr>
+            <tr>
+              <th>perm</th>
+              <td>
+                UID/GID/supplemental groups simulation · practical
+                <code class="inline">root_squash</code> detection
+              </td>
+            </tr>
+            <tr>
+              <th>lock</th>
+              <td>
+                <code class="inline">fcntl</code> advisory locks · NLM · NSM
+              </td>
+            </tr>
+            <tr>
+              <th>perf</th>
+              <td>
+                throughput smoke test · metadata latency · external
+                <code class="inline">fio</code> backend · deep metrics from
+                <code class="inline">/proc/self/mountstats</code>
+              </td>
+            </tr>
+            <tr>
+              <th>stale</th>
+              <td>
+                <code class="inline">ESTALE</code> loop · pNFS layouts ·
+                NFSoRDMA hints
+              </td>
+            </tr>
+            <tr>
+              <th>report</th>
+              <td>
+                compact text on TTY · hierarchical JSON · standalone HTML with
+                inline CSS
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ── usage ──────────────────────────────────────────────────── -->
+      <section class="section" id="usage">
+        <h2 class="section__title">
+          <a class="section__hash" href="#usage">#</a>
+          usage
+          <svg
+            class="section__pulse"
+            viewBox="0 0 200 14"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200"
+              stroke="currentColor"
+              stroke-width="1"
+              fill="none"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+        </h2>
+
+        <div class="recipes">
+          <div>
+            <p class="recipe__desc">full diagnostic — needs root for mount</p>
+<pre><code class="block">sudo nfsdiag 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">network and RPC only — no mount, no root</p>
+<pre><code class="block">nfsdiag --no-mount 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">simulate a specific identity (UID/GID + groups)</p>
+<pre><code class="block">sudo nfsdiag --uid 1000 --gid 1000 --groups 10,20 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">machine-readable report for CI / scripts</p>
+<pre><code class="block">nfsdiag --json=report.json 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">production audit — read-only, dry run, rate-limited</p>
+<pre><code class="block">nfsdiag --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">shareable HTML for a support ticket</p>
+<pre><code class="block">sudo nfsdiag --html=report.html 192.168.1.10</code></pre>
+          </div>
+        </div>
+
+        <p class="lede" style="margin-top: 28px;">
+          Full CLI reference with all flags, defaults, and advanced recipes in
+          <a href="docs.html#cli">the documentation</a>.
+        </p>
+      </section>
+
+      <!-- ── documentation CTA ─────────────────────────────────────── -->
+      <section class="section" id="docs">
+        <h2 class="section__title">
+          <a class="section__hash" href="#docs">#</a>
+          documentation
+          <svg
+            class="section__pulse"
+            viewBox="0 0 200 14"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200"
+              stroke="currentColor"
+              stroke-width="1"
+              fill="none"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+        </h2>
+
+        <p class="lede">
+          The full reference covers every CLI flag, all 14 Docker test fixtures,
+          JSON/HTML output formats, packaging (deb/rpm/apk), security notes,
+          architecture overview, limitations, and the changelog.
+        </p>
+
+        <a href="docs.html" class="cta-link">→ open full documentation</a>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>nfsdiag <strong>v0.3.0</strong></span>
+      <span class="foot__sep">·</span>
+      <span>MIT</span>
+      <span class="foot__sep">·</span>
+      <span>C99</span>
+      <span class="foot__sep">·</span>
+      <span>libtirpc</span>
+      <span class="foot__spacer"></span>
+      <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
+      <span class="foot__sep">·</span>
+      <a href="docs.html">docs</a>
+      <span class="foot__sep">·</span>
+      <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
+      <span class="foot__sep">·</span>
+      <a href="docs.html#changelog">changelog</a>
+    </footer>
+
+    <!-- theme toggle -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById("theme-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var cur = root.getAttribute("data-theme") || "light";
+          var next = cur === "light" ? "dark" : "light";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("nfsdiag-theme", next); } catch (e) {}
+        });
+      })();
+    </script>
+
+    <!-- Tweaks panel (accent color) -->
+    <div id="tweaks-root"></div>
+    <script
+      src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+      integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+      integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+      integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+      crossorigin="anonymous"
+    ></script>
+    <script type="text/babel" src="website/tweaks-panel.jsx"></script>
+    <script type="text/babel" src="website/tweaks.jsx"></script>
+  </body>
+</html>

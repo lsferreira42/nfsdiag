@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nfsdiag — full documentation</title>
+    <meta
+      name="description"
+      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="canonical" href="https://www.nfsdiag.org/docs.html" />
+    <meta property="og:url" content="https://www.nfsdiag.org/docs.html" />
+    <link rel="stylesheet" href="website/site.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("nfsdiag-theme");
+          if (t === "dark" || t === "light") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- ── reusable mark ────────────────────────────────────────────── -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="nfsdiag-mark" viewBox="0 0 64 64">
+          <path class="folder" d="M 8 14 H 24 L 28 18 H 56 V 52 H 8 Z" fill="none" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <path class="pulse" d="M 0 35 H 20 L 23 29 L 28 43 L 34 21 L 40 47 L 44 35 H 64" fill="none" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- ── nav ──────────────────────────────────────────────────────── -->
+    <header class="nav">
+      <div class="nav__inner">
+        <a class="nav__brand" href="index.html">
+          <svg class="mark" width="22" height="22" viewBox="0 0 64 64" aria-label="nfsdiag">
+            <use href="#nfsdiag-mark"></use>
+          </svg>
+          <span class="wm">nfs<span class="wm__diag">diag</span></span>
+        </a>
+        <nav class="nav__links" aria-label="primary">
+          <a href="index.html">← home</a>
+          <a href="#cli" class="nav__hide-sm">cli ref</a>
+          <a href="#fixtures" class="nav__hide-sm">fixtures</a>
+          <a href="#packaging" class="nav__hide-sm">packaging</a>
+          <a href="#changelog" class="nav__hide-sm">changelog</a>
+          <span class="nav__sep nav__hide-sm">│</span>
+          <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M 8 2 A 6 6 0 0 1 8 14 Z" fill="currentColor"/>
+            </svg>
+          </button>
+          <a class="nav__ext" href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">github ↗</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="top">
+      <!-- ── manpage header ────────────────────────────────────────── -->
+      <div class="manhead" aria-hidden="true">
+        <span>NFSDIAG(1)</span>
+        <span>User Manual</span>
+        <span>NFSDIAG(1)</span>
+      </div>
+
+      <!-- ── page title ────────────────────────────────────────────── -->
+      <section class="manpage">
+        <h2>DOCUMENTATION</h2>
+        <p class="desc">
+          <strong>nfsdiag</strong> v0.3.0 — full reference. Written in C99
+          against <code>libtirpc</code>. MIT license.
+        </p>
+
+        <h2>CONTENTS</h2>
+        <ul class="toc">
+          <li><a href="#cli">CLI reference</a></li>
+          <li><a href="#checks">what it checks</a></li>
+          <li><a href="#usage">usage recipes</a></li>
+          <li><a href="#output">output formats</a></li>
+          <li><a href="#exit">exit codes</a></li>
+          <li><a href="#fixtures">docker fixtures</a></li>
+          <li><a href="#packaging">packaging</a></li>
+          <li><a href="#security">security</a></li>
+          <li><a href="#architecture">architecture</a></li>
+          <li><a href="#limits">limitations</a></li>
+          <li><a href="#see-also">see also</a></li>
+          <li><a href="#changelog">changelog</a></li>
+        </ul>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           CLI REFERENCE
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="cli">
+        <h2 class="section__title">
+          <a class="section__hash" href="#cli">#</a>
+          CLI reference
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <pre><code class="block">nfsdiag [OPTIONS] &lt;server-ip-or-hostname&gt;</code></pre>
+
+        <!-- Diagnostic options -->
+        <p class="subsec">Diagnostic options</p>
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>flag</th>
+              <th>arg</th>
+              <th>default</th>
+              <th>description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">-e, --export</td>
+              <td class="arg">PATH</td>
+              <td class="def">—</td>
+              <td>Test only this export path instead of all discovered exports.</td>
+            </tr>
+            <tr>
+              <td class="flag">-o, --mount-options</td>
+              <td class="arg">OPTS</td>
+              <td class="def">—</td>
+              <td>Extra mount options passed verbatim to <code class="inline">mount(8)</code> (comma-separated, e.g. <code class="inline">soft,timeo=30</code>).</td>
+            </tr>
+            <tr>
+              <td class="flag">--no-mount</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Run only network and RPC checks. Skip all mount operations and filesystem tests. Does not require root.</td>
+            </tr>
+            <tr>
+              <td class="flag">--dry-run</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Print what would be done. Skips mounts and all filesystem diagnostics. Safe for quick pre-flight checks.</td>
+            </tr>
+            <tr>
+              <td class="flag">--read-only</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Do not create or write any test files on the export. Leaves no <code class="inline">.nfsdoctor-*</code> artefacts.</td>
+            </tr>
+            <tr>
+              <td class="flag">--uid</td>
+              <td class="arg">UID</td>
+              <td class="def">—</td>
+              <td>Simulate access as this UID (repeatable for multiple identities). Requires root. Pair with <code class="inline">--gid</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--gid</td>
+              <td class="arg">GID</td>
+              <td class="def">—</td>
+              <td>GID paired with the preceding <code class="inline">--uid</code>. If given without <code class="inline">--uid</code>, applies to the current effective UID.</td>
+            </tr>
+            <tr>
+              <td class="flag">--groups</td>
+              <td class="arg">G1,G2</td>
+              <td class="def">—</td>
+              <td>Comma-separated supplemental GIDs for UID/GID simulation. Max 64 groups. Requires root.</td>
+            </tr>
+            <tr>
+              <td class="flag">--krb5</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Check Kerberos prerequisites: valid ticket via <code class="inline">klist</code>, running <code class="inline">rpc.gssd</code>, Kerberos configuration file.</td>
+            </tr>
+            <tr>
+              <td class="flag">--udp</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Also probe RPC <code class="inline">NULLPROC</code> over UDP in addition to the default TCP probes.</td>
+            </tr>
+            <tr>
+              <td class="flag">--ipv4-only</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Force IPv4 for direct TCP port checks. Does not affect mount commands.</td>
+            </tr>
+            <tr>
+              <td class="flag">--ipv6-only</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Force IPv6 for direct TCP port checks. IPv6 literals in mount sources are automatically wrapped in brackets.</td>
+            </tr>
+            <tr>
+              <td class="flag">--no-nfs4-discovery</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Disable NFSv4 pseudo-root fallback. By default, if mountd is unavailable, nfsdiag tries to discover exports via the NFSv4 root.</td>
+            </tr>
+            <tr>
+              <td class="flag">--mount-namespace</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Run mounts inside a private mount namespace so they are invisible to other processes. Requires root or <code class="inline">CAP_SYS_ADMIN</code>.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Timeout options -->
+        <p class="subsec">Timeout options</p>
+        <table class="ref-table">
+          <thead>
+            <tr><th>flag</th><th>arg</th><th>default</th><th>description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">--timeout</td>
+              <td class="arg">SEC</td>
+              <td class="def">5</td>
+              <td>Network and RPC connect timeout in seconds. Applied to TCP reachability checks and <code class="inline">clnt_create</code> calls.</td>
+            </tr>
+            <tr>
+              <td class="flag">--command-timeout</td>
+              <td class="arg">SEC</td>
+              <td class="def">30</td>
+              <td>Timeout for <code class="inline">mount</code> and <code class="inline">umount</code> command invocations. Range: 1–3600.</td>
+            </tr>
+            <tr>
+              <td class="flag">--fs-timeout</td>
+              <td class="arg">SEC</td>
+              <td class="def">30</td>
+              <td>Timeout for each filesystem test group (write/read benchmark, advisory lock, root_squash). Each group runs with its own independent SIGALRM.</td>
+            </tr>
+            <tr>
+              <td class="flag">--delay-ms</td>
+              <td class="arg">MS</td>
+              <td class="def">0</td>
+              <td>Milliseconds to sleep between testing each export. Useful as a rate limiter when auditing servers under production load. Max: 600000.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Benchmark options -->
+        <p class="subsec">Benchmark options</p>
+        <table class="ref-table">
+          <thead>
+            <tr><th>flag</th><th>arg</th><th>default</th><th>description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">--bench-bytes</td>
+              <td class="arg">BYTES</td>
+              <td class="def">4194304</td>
+              <td>Size of the read/write benchmark payload in bytes (4 MiB by default). Max: 1 GiB.</td>
+            </tr>
+            <tr>
+              <td class="flag">--bench-iterations</td>
+              <td class="arg">N</td>
+              <td class="def">10</td>
+              <td>Number of create/rename/unlink cycles for the metadata latency test.</td>
+            </tr>
+            <tr>
+              <td class="flag">--bench-type</td>
+              <td class="arg">TYPE</td>
+              <td class="def">internal</td>
+              <td>Benchmark engine. <code class="inline">internal</code>: built-in smoke test. <code class="inline">fio</code>: external <code class="inline">fio</code> binary (must be installed and in PATH).</td>
+            </tr>
+            <tr>
+              <td class="flag">--stale-iterations</td>
+              <td class="arg">N</td>
+              <td class="def">100</td>
+              <td>Number of iterations in the <code class="inline">ESTALE</code> probe loop. Higher values increase the chance of catching transient stale handles.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <!-- Output options -->
+        <p class="subsec">Output options</p>
+        <table class="ref-table">
+          <thead>
+            <tr><th>flag</th><th>arg</th><th>default</th><th>description</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">--json[=PATH]</td>
+              <td class="arg">PATH</td>
+              <td class="def">—</td>
+              <td>Emit a hierarchical JSON report. Omit PATH or use <code class="inline">-</code> to write to stdout (suppresses diagnostic text). Writing to a file keeps stdout active.</td>
+            </tr>
+            <tr>
+              <td class="flag">--html[=PATH]</td>
+              <td class="arg">PATH</td>
+              <td class="def">—</td>
+              <td>Emit a standalone HTML report with inline CSS. Use <code class="inline">-</code> for stdout. Suitable for sharing in support tickets or storing as artefacts.</td>
+            </tr>
+            <tr>
+              <td class="flag">--keep-temp</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Do not remove the temporary workspace after tests. Useful for manual inspection of leftover test files or mount state.</td>
+            </tr>
+            <tr>
+              <td class="flag">-v, --verbose</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Show all diagnostic steps, including low-level OK and info messages. Without this, only warnings and failures are printed (plus the summary line).</td>
+            </tr>
+            <tr>
+              <td class="flag">-q, --quiet</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Suppress stdout. Combine with <code class="inline">--json=FILE</code> or <code class="inline">--html=FILE</code> to get a report with no terminal output.</td>
+            </tr>
+            <tr>
+              <td class="flag">-V, --version</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Print <code class="inline">nfsdiag &lt;version&gt;</code> and exit 0.</td>
+            </tr>
+            <tr>
+              <td class="flag">-h, --help</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Print the help text and exit 0.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note">
+          <strong>Stdout suppression rule:</strong> stdout is suppressed only when
+          <code class="inline">--json=-</code> or <code class="inline">--html=-</code>
+          (report written to stdout). Writing to a named file keeps stdout active.
+          Use <code class="inline">--quiet</code> to suppress stdout when writing to a file.
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           WHAT IT CHECKS
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="checks">
+        <h2 class="section__title">
+          <a class="section__hash" href="#checks">#</a>
+          what it checks
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>network</th>
+              <td>
+                TCP reachability for rpcbind (<code class="inline">tcp/111</code>) and NFS
+                (<code class="inline">tcp/2049</code>). IPv4 and IPv6 with fallback.
+                Optional UDP probe with <code class="inline">--udp</code>.
+              </td>
+            </tr>
+            <tr>
+              <th>rpc</th>
+              <td>
+                Full service map from rpcbind. <code class="inline">NULLPROC</code> probes
+                for NFS v2, v3, v4, v4.1, v4.2; mountd v1, v2, v3; lockd/NLM;
+                statd/NSM. Detects which versions are actually registered and
+                responding.
+              </td>
+            </tr>
+            <tr>
+              <th>client daemons</th>
+              <td>
+                Checks for running <code class="inline">nfs-client.target</code>,
+                <code class="inline">rpc.gssd</code>, and <code class="inline">nfs-idmapd</code>
+                via systemd. Degrades gracefully on non-systemd systems. With
+                <code class="inline">--krb5</code>: validates Kerberos ticket,
+                <code class="inline">gssd</code>, and <code class="inline">krb5.conf</code>.
+              </td>
+            </tr>
+            <tr>
+              <th>exports</th>
+              <td>
+                Enumerates exports via mountd (tries v3, v2, v1). Falls back to
+                NFSv4 pseudo-root discovery when mountd is unavailable. Respects
+                <code class="inline">--export PATH</code> to test a single path.
+              </td>
+            </tr>
+            <tr>
+              <th>mount</th>
+              <td>
+                Attempts to mount each export with version cascade: v4.2 → v4.1
+                → v4 → v3. Parses effective mount options from
+                <code class="inline">/proc/self/mountinfo</code> and verifies
+                they match expected values. Supports private mount namespace
+                isolation.
+              </td>
+            </tr>
+            <tr>
+              <th>filesystem</th>
+              <td>
+                Close-to-open consistency check. Read and traverse permission.
+                Directory listing. Create/write/<code class="inline">fsync</code>/read
+                round-trip. Advanced I/O:
+                <code class="inline">copy_file_range</code>,
+                <code class="inline">fallocate</code>,
+                <code class="inline">O_DIRECT</code>.
+                Quota and special file detection.
+                Each group runs with its own <code class="inline">SIGALRM</code>
+                timeout.
+              </td>
+            </tr>
+            <tr>
+              <th>acl</th>
+              <td>
+                POSIX ACL read/write via <code class="inline">getxattr</code>.
+                NFSv4 ACL detection. Generic extended attribute support.
+                SELinux security context retrieval.
+              </td>
+            </tr>
+            <tr>
+              <th>permissions</th>
+              <td>
+                UID and GID simulation using <code class="inline">setuid</code> /
+                <code class="inline">setgid</code> / <code class="inline">setgroups</code>
+                in child processes with
+                <code class="inline">prctl(PR_SET_PDEATHSIG)</code> termination
+                safety. Multiple identities supported via repeated
+                <code class="inline">--uid</code>. Practical
+                <code class="inline">root_squash</code> detection: verifies that
+                euid 0 is remapped to a non-root UID on the server.
+              </td>
+            </tr>
+            <tr>
+              <th>locking</th>
+              <td>
+                Advisory lock test via <code class="inline">fcntl(F_SETLK)</code>.
+                NLM and NSM service presence. Lock acquisition and release with
+                timeout protection.
+              </td>
+            </tr>
+            <tr>
+              <th>performance</th>
+              <td>
+                Internal read/write throughput smoke test. Metadata latency
+                (create/rename/unlink loop). External
+                <code class="inline">fio</code> backend (opt-in via
+                <code class="inline">--bench-type=fio</code>). Deep latency
+                histograms and RPC operation stats from
+                <code class="inline">/proc/self/mountstats</code>. RPC
+                retransmission and auth-refresh delta captured before and after
+                tests.
+              </td>
+            </tr>
+            <tr>
+              <th>stale handles</th>
+              <td>
+                <code class="inline">ESTALE</code> probe loop (configurable
+                iterations). pNFS layout detection via mountstats. NFSoRDMA
+                transport hints. NFS minor version tracked in JSON/HTML output.
+              </td>
+            </tr>
+            <tr>
+              <th>reporting</th>
+              <td>
+                Compact coloured text on TTY (warnings/failures always shown;
+                verbose mode shows all). Hierarchical JSON with per-export
+                events and NFS version metadata. Standalone HTML with inline
+                CSS, no external dependencies.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           USAGE RECIPES
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="usage">
+        <h2 class="section__title">
+          <a class="section__hash" href="#usage">#</a>
+          usage recipes
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <div class="recipes">
+          <div>
+            <p class="recipe__desc">full diagnostic — needs root for mount</p>
+<pre><code class="block">sudo nfsdiag 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">verbose — see every probe step</p>
+<pre><code class="block">sudo nfsdiag -v 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">network and RPC only — no mount, no root</p>
+<pre><code class="block">nfsdiag --no-mount 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">test a single export path</p>
+<pre><code class="block">sudo nfsdiag --export /data 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">pass extra mount options</p>
+<pre><code class="block">sudo nfsdiag --mount-options soft,timeo=30,retrans=2 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">simulate a specific identity (UID/GID + supplemental groups)</p>
+<pre><code class="block">sudo nfsdiag \
+  --uid 1000 --gid 1000 \
+  --groups 10,20,30 \
+  192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">simulate multiple identities in one run</p>
+<pre><code class="block">sudo nfsdiag \
+  --uid 1000 --gid 1000 \
+  --uid 2000 --gid 2000 \
+  192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">check Kerberos prerequisites</p>
+<pre><code class="block">sudo nfsdiag --krb5 kerberos-nfs.example.com</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">machine-readable report for CI / scripts</p>
+<pre><code class="block">nfsdiag --json=report.json 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">JSON to stdout — pipe to jq</p>
+<pre><code class="block">nfsdiag --json 192.168.1.10 | jq '.exports[].events'</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">shareable HTML for a support ticket</p>
+<pre><code class="block">sudo nfsdiag --html=report.html 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">quiet — report file only, no terminal output</p>
+<pre><code class="block">sudo nfsdiag --quiet --json=report.json 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">production audit — read-only, dry run, rate-limited</p>
+<pre><code class="block">nfsdiag --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">isolate in a private mount namespace</p>
+<pre><code class="block">sudo nfsdiag --mount-namespace 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">larger benchmark payload and fio backend</p>
+<pre><code class="block">sudo nfsdiag \
+  --bench-bytes 67108864 \
+  --bench-type fio \
+  192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">force IPv6, also probe UDP</p>
+<pre><code class="block">nfsdiag --ipv6-only --udp 2001:db8::1</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">keep temp workspace for post-mortem inspection</p>
+<pre><code class="block">sudo nfsdiag --keep-temp 192.168.1.10</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           OUTPUT FORMATS
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="output">
+        <h2 class="section__title">
+          <a class="section__hash" href="#output">#</a>
+          output formats
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="subsec">Text (default)</p>
+        <p class="lede">
+          Compact on TTY. Warnings and failures always shown. Informational and
+          low-level OK messages only shown with <code class="inline">--verbose</code>.
+          Coloured output when stdout is a terminal.
+        </p>
+<pre><code class="block">nfsdiag 0.3.0: 192.168.0.21
+[OK]   1 export(s) discovered
+[WARN] root_squash not detected on /data (uid 0 remains 0)
+summary: ok=12 warn=1 fail=0</code></pre>
+
+        <p class="subsec">JSON</p>
+        <p class="lede">
+          Hierarchical structure: top-level metadata, per-export events (linked
+          by <code class="inline">export_idx</code>), per-export NFS version,
+          and a recommendations array. The NFS minor version (4.1, 4.2) is
+          tracked inside each export record.
+        </p>
+<pre><code class="block"><span class="code__d"># JSON to file — diagnostic text still on stdout</span>
+nfsdiag --json=report.json 192.168.1.10
+
+<span class="code__d"># JSON to stdout — diagnostic text suppressed</span>
+nfsdiag --json 192.168.1.10
+nfsdiag --json=- 192.168.1.10
+
+<span class="code__d"># pipe to jq</span>
+nfsdiag --json 192.168.1.10 | jq '.exports[0].nfs_version'</code></pre>
+
+        <p class="subsec">HTML</p>
+        <p class="lede">
+          Standalone report with inline CSS — no external resources. Open in any
+          browser. Safe to email or attach to issue trackers.
+        </p>
+<pre><code class="block"><span class="code__d"># HTML to file</span>
+sudo nfsdiag --html=report.html 192.168.1.10
+
+<span class="code__d"># HTML to stdout (suppresses diagnostic text)</span>
+sudo nfsdiag --html=- 192.168.1.10 &gt; report.html
+
+<span class="code__d"># quiet: HTML file only, no terminal output</span>
+sudo nfsdiag --quiet --html=report.html 192.168.1.10</code></pre>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           EXIT CODES
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="exit">
+        <h2 class="section__title">
+          <a class="section__hash" href="#exit">#</a>
+          exit codes
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <table class="exit">
+          <tbody>
+            <tr><th>0</th><td>All checks passed — no warnings, no failures.</td></tr>
+            <tr><th>1</th><td>At least one warning or failure was detected. In automation, warnings return 1 because they usually need attention.</td></tr>
+            <tr><th>2</th><td>Usage error or local runtime failure (bad argument, missing dependency, initialization error).</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           DOCKER FIXTURES
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="fixtures">
+        <h2 class="section__title">
+          <a class="section__hash" href="#fixtures">#</a>
+          docker fixtures
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          14 Docker fixtures reproduce known-bad NFS situations end-to-end. Each
+          spins up a container with a specific failure scenario, runs
+          <code class="inline">nfsdiag</code> against it, and validates the
+          output. Regressions in the diagnostic logic show up as test failures.
+        </p>
+
+        <div class="note">
+          <strong>Warning:</strong> Fixture configurations use wildcard clients,
+          <code class="inline">insecure</code>, and <code class="inline">no_root_squash</code>
+          intentionally to simulate test scenarios. These settings are
+          <strong>test-only</strong> and must never be used in production.
+        </div>
+
+        <ul class="fixtures">
+          <li>rpcbind-unreachable</li>
+          <li>nfs-port-unreachable</li>
+          <li>rpc-map-missing-nfs</li>
+          <li>mountd-unavailable</li>
+          <li>empty-exports</li>
+          <li>mount-denied</li>
+          <li>permission-denied</li>
+          <li>acl-unsupported</li>
+          <li>identity-denied</li>
+          <li>read-only-export</li>
+          <li>root-squash</li>
+          <li>locking-missing</li>
+          <li>stale-handle</li>
+          <li>slow-performance</li>
+        </ul>
+
+<pre><code class="block">make test-fixtures                     <span class="code__d"># run all 14 fixtures</span>
+make test-fixture-root-squash          <span class="code__d"># run a single fixture</span>
+make test-fixture-stale-handle         <span class="code__d"># run another single fixture</span>
+make docker-build-all                  <span class="code__d"># build all images only</span>
+make docker-build-slow-performance     <span class="code__d"># build one image</span>
+make test-fixtures-list                <span class="code__d"># list available fixtures</span></code></pre>
+
+        <p class="lede">
+          Some fixtures require root because they perform real NFS mounts from
+          the host. The test runner skips mount-dependent cases gracefully if
+          the host cannot run kernel NFS inside Docker.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           PACKAGING
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="packaging">
+        <h2 class="section__title">
+          <a class="section__hash" href="#packaging">#</a>
+          packaging
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          Pre-built <code class="inline">.deb</code>, <code class="inline">.rpm</code>,
+          and <code class="inline">.apk</code> packages are published automatically
+          for every release:
+          <a href="https://github.com/lsferreira42/nfsdiag/releases/latest" target="_blank" rel="noopener">github.com/lsferreira42/nfsdiag/releases/latest ↗</a>
+        </p>
+
+        <p class="subsec">Build packages from source</p>
+<pre><code class="block">make deb       <span class="code__d"># Debian/Ubuntu .deb (requires dpkg-deb)</span>
+make rpm       <span class="code__d"># Fedora/RHEL .rpm (requires rpm-build)</span>
+make apk       <span class="code__d"># Alpine .apk (requires Docker)</span>
+make packages  <span class="code__d"># all three formats at once</span></code></pre>
+
+        <p class="lede">Built packages are placed in <code class="inline">build/</code>.</p>
+
+        <p class="subsec">Install options</p>
+<pre><code class="block">sudo make install             <span class="code__d"># install to /usr/local</span>
+make PREFIX=/opt install      <span class="code__d"># install to a custom prefix</span>
+sudo make uninstall           <span class="code__d"># remove installed files</span></code></pre>
+
+        <p class="subsec">Version bumping</p>
+        <p class="lede">
+          The version lives in <code class="inline">VERSION</code> and is mirrored
+          atomically into <code class="inline">src/nfsdiag.h</code> and all packaging
+          files by the bump targets.
+        </p>
+<pre><code class="block">make bump-version-bugfix   <span class="code__d"># 0.3.0 → 0.3.1</span>
+make bump-version-minor    <span class="code__d"># 0.3.0 → 0.4.0</span>
+make bump-version-major    <span class="code__d"># 0.3.0 → 1.0.0</span></code></pre>
+
+        <p class="subsec">GitHub release</p>
+        <p class="lede">
+          <code class="inline">make release</code> builds all packages, creates an
+          annotated git tag, pushes it, and uploads <code class="inline">.deb</code>,
+          <code class="inline">.rpm</code>, and <code class="inline">.apk</code> to a
+          GitHub release using the <code class="inline">gh</code> CLI. The working
+          directory must be clean before running.
+        </p>
+<pre><code class="block">make release</code></pre>
+
+        <p class="lede">
+          Automated releases also run via GitHub Actions on every
+          <code class="inline">v*</code> tag push. The workflow builds DEB on
+          Ubuntu, RPM in a Fedora container, and APK via Docker, then attaches
+          all three packages to the release.
+        </p>
+
+        <p class="subsec">Manual compile</p>
+<pre><code class="block">gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
+    src/main.c src/mount.c src/network.c src/report.c \
+    src/rpc.c src/stats.c src/tests.c \
+    -ltirpc -o nfsdiag</code></pre>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SECURITY
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="security">
+        <h2 class="section__title">
+          <a class="section__hash" href="#security">#</a>
+          security
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          nfsdiag is designed to be safe when run as root, including against
+          adversarial NFS servers.
+        </p>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>file ops</th>
+              <td>
+                Report files opened with
+                <code class="inline">O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|0600</code>
+                — prevents symlink attacks when running as root. Test files use
+                hidden <code class="inline">.nfsdoctor-*</code> names inside a
+                <code class="inline">mktemp</code>-created workspace.
+              </td>
+            </tr>
+            <tr>
+              <th>processes</th>
+              <td>
+                Child processes use <code class="inline">execvp</code> with an
+                <code class="inline">argv[]</code> array — no
+                <code class="inline">sh -c</code> with dynamic strings.
+                <code class="inline">prctl(PR_SET_PDEATHSIG)</code> +
+                <code class="inline">setpgid()</code> prevent orphan children.
+                Inherited file descriptors closed in child processes.
+              </td>
+            </tr>
+            <tr>
+              <th>XDR / RPC</th>
+              <td>
+                XDR string sizes bounded: export paths at 4096 bytes, group
+                names at 256 bytes. Prevents memory exhaustion from malicious
+                servers advertising oversized strings.
+              </td>
+            </tr>
+            <tr>
+              <th>memory</th>
+              <td>
+                <code class="inline">strdup()</code> and
+                <code class="inline">calloc()</code> return values always
+                checked. NULL on OOM is never stored silently.
+              </td>
+            </tr>
+            <tr>
+              <th>timeouts</th>
+              <td>
+                <code class="inline">SIGALRM</code>-based timeouts protect
+                both filesystem operations and RPC calls
+                (<code class="inline">clnt_create</code>,
+                <code class="inline">pmap_getmaps</code>). Signal handlers
+                installed without <code class="inline">SA_RESTART</code> for
+                responsive interruption.
+              </td>
+            </tr>
+            <tr>
+              <th>cleanup</th>
+              <td>
+                <code class="inline">atexit(cleanup_all)</code> + SIGINT/SIGTERM
+                handlers always unmount and remove the temp workspace, even on
+                crash or signal. Active mountpoints tracked globally so no mount
+                leaks on unexpected exit.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="note">
+          <strong>Production use:</strong> by default nfsdiag creates hidden
+          <code class="inline">.nfsdoctor-*</code> files to test write/read behaviour.
+          Use <code class="inline">--read-only</code> to leave the export untouched, or
+          <code class="inline">--dry-run</code> to skip mounts entirely.
+          UID/GID simulation requires root because it uses
+          <code class="inline">setgid</code>, <code class="inline">setgroups</code>, and
+          <code class="inline">setuid</code> in child processes.
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           ARCHITECTURE
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="architecture">
+        <h2 class="section__title">
+          <a class="section__hash" href="#architecture">#</a>
+          architecture
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          ~3,000 lines of C99. Split into 7 focused modules plus a shared header.
+          No runtime dependencies beyond <code class="inline">libtirpc</code>.
+        </p>
+
+        <p class="subsec">Modules</p>
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>nfsdiag.h</th>
+              <td>All shared types, constants, and <code class="inline">extern</code> declarations. Single source of truth for defaults and limits.</td>
+            </tr>
+            <tr>
+              <th>main.c</th>
+              <td>CLI parsing (<code class="inline">getopt_long</code>), orchestration loop, signal and <code class="inline">atexit</code> handlers.</td>
+            </tr>
+            <tr>
+              <th>network.c</th>
+              <td>TCP port reachability checks for IPv4 and IPv6.</td>
+            </tr>
+            <tr>
+              <th>rpc.c</th>
+              <td>RPC service discovery via rpcbind, <code class="inline">NULLPROC</code> version probing, export enumeration via mountd.</td>
+            </tr>
+            <tr>
+              <th>mount.c</th>
+              <td>Mount/unmount execution, command output capture via <code class="inline">poll()</code>, mount namespace setup.</td>
+            </tr>
+            <tr>
+              <th>tests.c</th>
+              <td>All filesystem-level diagnostics after mount: I/O, ACLs, locks, identity simulation, benchmarks.</td>
+            </tr>
+            <tr>
+              <th>report.c</th>
+              <td>Event and recommendation accumulation, JSON and HTML report generation.</td>
+            </tr>
+            <tr>
+              <th>stats.c</th>
+              <td>Client daemon checks, <code class="inline">/proc/net/rpc/nfs</code> stats, <code class="inline">/proc/self/mountstats</code> parsing.</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="subsec">Execution flow</p>
+<pre><code class="block">CLI args → network tests → RPC discovery → export enumeration
+  → [for each export] mount (v4.2→4.1→4→3) → filesystem tests → unmount
+  → RPC stats delta → text/JSON/HTML report → cleanup</code></pre>
+
+        <p class="subsec">Key constants</p>
+        <table class="ref-table">
+          <thead>
+            <tr><th>constant</th><th colspan="3">value</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.3.0"</td></tr>
+            <tr><td class="flag">RPCBIND_PORT</td><td colspan="3">111</td></tr>
+            <tr><td class="flag">NFS_PORT</td><td colspan="3">2049</td></tr>
+            <tr><td class="flag">MAX_EXPORTS</td><td colspan="3">512</td></tr>
+            <tr><td class="flag">MAX_EVENTS</td><td colspan="3">4096</td></tr>
+            <tr><td class="flag">MAX_RECOMMENDATIONS</td><td colspan="3">128</td></tr>
+            <tr><td class="flag">MAX_MOUNTPOINTS</td><td colspan="3">128</td></tr>
+            <tr><td class="flag">MAX_IDENTITIES</td><td colspan="3">32</td></tr>
+            <tr><td class="flag">MAX_SUPP_GROUPS</td><td colspan="3">64</td></tr>
+            <tr><td class="flag">MAX_XDR_EXPORT_PATH</td><td colspan="3">4096</td></tr>
+            <tr><td class="flag">MAX_XDR_GROUP_NAME</td><td colspan="3">256</td></tr>
+            <tr><td class="flag">CMD_OUTPUT_LIMIT</td><td colspan="3">8192</td></tr>
+            <tr><td class="flag">DEFAULT_TIMEOUT_SEC</td><td colspan="3">5</td></tr>
+            <tr><td class="flag">DEFAULT_COMMAND_TIMEOUT_SEC</td><td colspan="3">30</td></tr>
+            <tr><td class="flag">DEFAULT_FS_TIMEOUT_SEC</td><td colspan="3">30</td></tr>
+            <tr><td class="flag">DEFAULT_BENCH_BYTES</td><td colspan="3">4 MiB</td></tr>
+            <tr><td class="flag">DEFAULT_BENCH_ITERATIONS</td><td colspan="3">10</td></tr>
+            <tr><td class="flag">DEFAULT_STALE_ITERATIONS</td><td colspan="3">100</td></tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           LIMITATIONS
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="limits">
+        <h2 class="section__title">
+          <a class="section__hash" href="#limits">#</a>
+          limitations
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          NFS problems are environment-dependent. Results can differ based on
+          firewall rules, server export options, NFS version negotiated, kernel
+          client state, UID/GID mapping, root squash, ACLs, SELinux/AppArmor on
+          the server, and server load.
+        </p>
+
+        <p class="lede">
+          Things the client-side tool cannot guarantee:
+        </p>
+
+        <ul class="fixtures">
+          <li><code class="inline">ESTALE</code> windows that only open under production load</li>
+          <li>SELinux / AppArmor denials that surface as plain <code class="inline">EACCES</code></li>
+          <li>ACL info the kernel client chooses not to expose</li>
+          <li>Performance numbers beyond smoke-test territory</li>
+          <li>Docker NFS fixtures depend on host kernel and Docker privileges</li>
+          <li>Server-side issues: disk full, export re-exports, NFS server logs</li>
+        </ul>
+
+        <p class="lede">
+          Use nfsdiag as a fast diagnostic helper, not as the sole source of truth.
+          Server-side analysis (NFS server logs, <code class="inline">exportfs -v</code>,
+          <code class="inline">nfsstat -s</code>) remains essential.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SEE ALSO
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="see-also">
+        <h2 class="section__title">
+          <a class="section__hash" href="#see-also">#</a>
+          see also
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <div class="seealso">
+          <span class="ref">nfsstat(8)</span><span class="sep">·</span>
+          <span class="ref">showmount(8)</span><span class="sep">·</span>
+          <span class="ref">rpcinfo(8)</span><span class="sep">·</span>
+          <span class="ref">mount.nfs(8)</span><span class="sep">·</span>
+          <span class="ref">exports(5)</span><span class="sep">·</span>
+          <span class="ref">nfs(5)</span><span class="sep">·</span>
+          <span class="ref">idmapd(8)</span><span class="sep">·</span>
+          <span class="ref">rpc.gssd(8)</span><span class="sep">·</span>
+          <span class="ref">rpc.idmapd(8)</span><span class="sep">·</span>
+          <span class="ref">mountstats(8)</span><span class="sep">·</span>
+          <span class="ref">nfsmount.conf(5)</span><span class="sep">·</span>
+          <span class="ref">exportfs(8)</span><span class="sep">·</span>
+          <span class="ref">fio(1)</span>
+        </div>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           CHANGELOG
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="changelog">
+        <h2 class="section__title">
+          <a class="section__hash" href="#changelog">#</a>
+          changelog
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="subsec">v0.3.0</p>
+        <p class="lede">
+          Packaging and release infrastructure. No breaking changes to
+          diagnostic behaviour.
+        </p>
+        <ul class="fixtures">
+          <li>Added <code class="inline">make deb</code>, <code class="inline">make rpm</code>, <code class="inline">make apk</code> packaging targets</li>
+          <li>Added <code class="inline">make release</code> for automated GitHub releases via <code class="inline">gh</code></li>
+          <li>Added <code class="inline">make bump-version-{bugfix,minor,major}</code> for atomic version bumps</li>
+          <li>GitHub Actions workflow builds DEB/RPM/APK on every <code class="inline">v*</code> tag</li>
+          <li>VERSION file as single source of truth, mirrored to header and packaging files</li>
+        </ul>
+
+        <p class="subsec">v0.2.0</p>
+        <p class="lede">Security fixes, behavioural fixes, and robustness improvements.</p>
+
+        <p class="lede" style="color: var(--muted);">Security &amp; crash fixes</p>
+        <ul class="fixtures">
+          <li><code class="inline">strdup()</code> return checked in <code class="inline">add_event()</code> and <code class="inline">add_recommendation()</code> — prevents NULL dereference under OOM</li>
+          <li>Report files opened with <code class="inline">O_NOFOLLOW|O_CREAT|0600</code> — prevents symlink attacks when running as root</li>
+          <li>XDR string limits applied to export paths (4096 B) and group names (256 B) — prevents memory exhaustion from malicious servers</li>
+          <li><code class="inline">fio</code> benchmarks use <code class="inline">execvp</code> argv array instead of <code class="inline">sh -c</code></li>
+          <li>Numeric CLI arguments reject empty strings — <code class="inline">--uid=</code> is now an error</li>
+        </ul>
+
+        <p class="lede" style="color: var(--muted);">Behavioural fixes</p>
+        <ul class="fixtures">
+          <li><code class="inline">--json=file</code> no longer suppresses stdout; use <code class="inline">--quiet</code> to suppress</li>
+          <li><code class="inline">--html=-</code> now suppresses diagnostic text correctly</li>
+          <li><code class="inline">--dry-run</code> no longer runs filesystem diagnostics on local temp dir</li>
+          <li>Write/read benchmark, advisory lock, and root_squash are now independent tests with separate timeouts</li>
+          <li><code class="inline">enumerate_exports()</code> now tries mountd v2 between v3 and v1</li>
+          <li>IPv6 literal addresses get brackets in mount source (<code class="inline">[addr]:/export</code>)</li>
+          <li>NFS minor version (4.1, 4.2) tracked in JSON and HTML reports</li>
+        </ul>
+
+        <p class="lede" style="color: var(--muted);">Robustness</p>
+        <ul class="fixtures">
+          <li>Pipe drain continues discarding when output buffer is full — no stall-until-timeout</li>
+          <li><code class="inline">dup2()</code> return checked in child processes</li>
+          <li><code class="inline">sscanf()</code> return checked when parsing <code class="inline">/proc/net/rpc/nfs</code></li>
+          <li>RPC counter wrap/reset detected when computing stats delta</li>
+          <li><code class="inline">clnt_create()</code> and <code class="inline">pmap_getmaps()</code> protected with SIGALRM timeout</li>
+          <li>Mountpoint option detection uses exact comma-separated token matching</li>
+          <li>Mountstats section matched by exact mountpoint field, not substring</li>
+          <li>Signal handlers installed without <code class="inline">SA_RESTART</code></li>
+        </ul>
+
+        <p class="lede" style="color: var(--muted);">Other</p>
+        <ul class="fixtures">
+          <li>All 14 fixtures included in <code class="inline">ALL_FIXTURES</code> (was 9)</li>
+          <li>Test runner uses <code class="inline">mktemp</code> instead of predictable <code class="inline">/tmp</code> filenames</li>
+          <li><code class="inline">TMPDIR</code> environment variable respected for temp workspace</li>
+          <li>Client daemon checks skipped gracefully on non-systemd systems</li>
+          <li><code class="inline">-V, --version</code> flag added</li>
+          <li>CLI options reorganised into logical groups (Diagnostic / Timeout / Benchmark / Output)</li>
+        </ul>
+
+        <p class="subsec">v0.1.0</p>
+        <p class="lede">Initial public release.</p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>nfsdiag <strong>v0.3.0</strong></span>
+      <span class="foot__sep">·</span>
+      <span>MIT</span>
+      <span class="foot__sep">·</span>
+      <span>C99</span>
+      <span class="foot__sep">·</span>
+      <span>libtirpc</span>
+      <span class="foot__spacer"></span>
+      <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
+      <span class="foot__sep">·</span>
+      <a href="index.html">home</a>
+      <span class="foot__sep">·</span>
+      <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
+      <span class="foot__sep">·</span>
+      <a href="#changelog">changelog</a>
+    </footer>
+
+    <!-- theme toggle -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById("theme-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var cur = root.getAttribute("data-theme") || "light";
+          var next = cur === "light" ? "dark" : "light";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("nfsdiag-theme", next); } catch (e) {}
+        });
+      })();
+    </script>
+
+    <!-- Tweaks panel (accent color) -->
+    <div id="tweaks-root"></div>
+    <script
+      src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+      integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+      integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+      crossorigin="anonymous"
+    ></script>
+    <script
+      src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+      integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+      crossorigin="anonymous"
+    ></script>
+    <script type="text/babel" src="website/tweaks-panel.jsx"></script>
+    <script type="text/babel" src="website/tweaks.jsx"></script>
+  </body>
+</html>
