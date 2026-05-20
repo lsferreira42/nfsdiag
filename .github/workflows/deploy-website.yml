@@ -1,0 +1,28 @@
+name: Deploy website to Cloudflare
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'website/**'
+      - 'wrangler.jsonc'
+      - '.github/workflows/deploy-website.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-website
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
