@@ -206,9 +206,9 @@ The version lives in `VERSION` and is mirrored in `src/nfsdiag.h` and all
 packaging files. Use these targets to bump it atomically:
 
 ```sh
-make bump-version-bugfix   # 0.2.0 → 0.2.1
-make bump-version-minor    # 0.2.0 → 0.3.0
-make bump-version-major    # 0.2.0 → 1.0.0
+make bump-version-bugfix   # 0.4.1 → 0.4.2
+make bump-version-minor    # 0.4.1 → 0.5.0
+make bump-version-major    # 0.4.1 → 1.0.0
 ```
 
 Each target rewrites `VERSION`, `src/nfsdiag.h` (`NFSDIAG_VERSION`),
@@ -268,7 +268,7 @@ sudo ./nfsdiag --keep-temp 192.168.1.10
 Default output is clean and short. For example, in a healthy server it can be something like:
 
 ```text
-nfsdiag 0.2.0: 192.168.0.21
+nfsdiag 0.4.1: 192.168.0.21
 [OK] 1 export(s) discovered
 summary: ok=13 warn=0 fail=0
 ```

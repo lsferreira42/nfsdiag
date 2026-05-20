@@ -78,7 +78,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.3.0 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.4.1 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -603,7 +603,7 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.3.0: 192.168.0.21
+<pre><code class="block">nfsdiag 0.4.1: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -756,9 +756,9 @@ sudo make uninstall           <span class="code__d"># remove installed files</sp
           atomically into <code class="inline">src/nfsdiag.h</code> and all packaging
           files by the bump targets.
         </p>
-<pre><code class="block">make bump-version-bugfix   <span class="code__d"># 0.3.0 → 0.3.1</span>
-make bump-version-minor    <span class="code__d"># 0.3.0 → 0.4.0</span>
-make bump-version-major    <span class="code__d"># 0.3.0 → 1.0.0</span></code></pre>
+<pre><code class="block">make bump-version-bugfix   <span class="code__d"># 0.4.1 → 0.4.2</span>
+make bump-version-minor    <span class="code__d"># 0.4.1 → 0.5.0</span>
+make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code></pre>
 
         <p class="subsec">GitHub release</p>
         <p class="lede">
@@ -940,7 +940,7 @@ make bump-version-major    <span class="code__d"># 0.3.0 → 1.0.0</span></code>
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.3.0"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.4.1"</td></tr>
             <tr><td class="flag">RPCBIND_PORT</td><td colspan="3">111</td></tr>
             <tr><td class="flag">NFS_PORT</td><td colspan="3">2049</td></tr>
             <tr><td class="flag">MAX_EXPORTS</td><td colspan="3">512</td></tr>
@@ -1042,6 +1042,19 @@ make bump-version-major    <span class="code__d"># 0.3.0 → 1.0.0</span></code>
           </svg>
         </h2>
 
+        <p class="subsec">v0.4.1</p>
+        <p class="lede">
+          Website and CI/CD infrastructure. No changes to diagnostic behaviour.
+        </p>
+        <ul class="fixtures">
+          <li>Added website (<code class="inline">website/</code>) served at <a href="https://www.nfsdiag.org">www.nfsdiag.org</a></li>
+          <li>Home page (<code class="inline">index.html</code>) with install, checks overview, and basic usage</li>
+          <li>Full documentation page (<code class="inline">docs.html</code>) with complete CLI reference, fixtures, packaging, security, architecture, and changelog</li>
+          <li>Added <code class="inline">wrangler.jsonc</code> to deploy website as Cloudflare Workers static assets</li>
+          <li>Added GitHub Actions workflow (<code class="inline">deploy-website.yml</code>) for automatic deployment on push to <code class="inline">main</code></li>
+          <li>Fixed <code class="inline">make clean</code> target</li>
+        </ul>
+
         <p class="subsec">v0.3.0</p>
         <p class="lede">
           Packaging and release infrastructure. No breaking changes to
@@ -1106,7 +1119,7 @@ make bump-version-major    <span class="code__d"># 0.3.0 → 1.0.0</span></code>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.3.0</strong></span>
+      <span>nfsdiag <strong>v0.4.1</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

@@ -1,5 +1,5 @@
 Name:           nfsdiag
-Version:        0.3.0
+Version:        0.4.1
 Release:        1%{?dist}
 Summary:        NFS diagnostic tool
 
