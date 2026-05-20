@@ -1,4 +1,4 @@
-# nfs-doctor
+# nfs-doctor (nfsdiag) — v0.2.0
 
 `nfs-doctor` is a small command line tool written in C to help debug NFS servers from the client side.
 
@@ -39,14 +39,14 @@ Today `nfs-doctor` can do these checks:
 - simulate supplemental groups with `--groups`
 - run metadata latency test with create/rename/unlink
 - run stale file handle loop looking for `ESTALE`
-- check for pNFS layouts and NFSoRDMA connectivity
+- check for pNFS layouts via `/proc/self/mountstats`
 - run external `fio` benchmarks alongside internal smoke tests
 - safely handle temporary files, mounts and folders using `O_NOFOLLOW`
 - perform safe audits with `--dry-run` and rate limiting (`--delay-ms`)
-- generate hierarchical JSON reports for automation
-- generate standalone HTML reports with inline CSS and Base64 (`--html`)
+- generate hierarchical JSON reports for automation (NFS minor version tracked)
+- generate standalone HTML reports with inline CSS (`--html`)
 - output colored text and progress bars on interactive terminals
-- run Docker fixture tests for regression checks
+- run Docker fixture tests for regression checks (all 14 fixtures included)
 
 By default the output is compact. If you want all details, use `--verbose`.
 
@@ -143,8 +143,75 @@ sudo make uninstall
 Manual compile, if you want:
 
 ```sh
-gcc -O2 -Wall -Wextra -I/usr/include/tirpc nfsdiag.c -ltirpc -o nfsdiag
+gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
+    src/main.c src/mount.c src/network.c src/report.c \
+    src/rpc.c src/stats.c src/tests.c \
+    -ltirpc -o nfsdiag
 ```
+
+---
+
+## Packaging
+
+Packages are placed in `build/` after each build target.
+
+Build a Debian/Ubuntu `.deb`:
+
+```sh
+make deb
+```
+
+Build a Fedora/RHEL `.rpm` (requires `rpm-build`):
+
+```sh
+make rpm
+```
+
+Build an Alpine `.apk` (requires Docker):
+
+```sh
+make apk
+```
+
+Build all formats at once:
+
+```sh
+make packages
+```
+
+---
+
+## GitHub release
+
+`make release` builds all packages, creates an annotated git tag, pushes it,
+and uploads the resulting `.deb`, `.rpm`, and `.apk` to a GitHub release using
+the `gh` CLI. The working directory must be clean before running.
+
+```sh
+make release
+```
+
+Automated releases also run via GitHub Actions whenever a `v*` tag is pushed.
+The workflow builds DEB on Ubuntu, RPM in a Fedora container, and APK via
+Docker, then creates the release with all three packages attached. See
+`.github/workflows/release.yml`.
+
+---
+
+## Version bumping
+
+The version lives in `VERSION` and is mirrored in `src/nfsdiag.h` and all
+packaging files. Use these targets to bump it atomically:
+
+```sh
+make bump-version-bugfix   # 0.2.0 → 0.2.1
+make bump-version-minor    # 0.2.0 → 0.3.0
+make bump-version-major    # 0.2.0 → 1.0.0
+```
+
+Each target rewrites `VERSION`, `src/nfsdiag.h` (`NFSDIAG_VERSION`),
+`packaging/nfsdiag.control`, `packaging/nfsdiag.spec`, and
+`packaging/Dockerfile.apk` in one shot.
 
 ---
 
@@ -199,7 +266,7 @@ sudo ./nfsdiag --keep-temp 192.168.1.10
 Default output is clean and short. For example, in a healthy server it can be something like:
 
 ```text
-nfsdiag: 192.168.0.21
+nfsdiag 0.2.0: 192.168.0.21
 [OK] 1 export(s) discovered
 summary: ok=13 warn=0 fail=0
 ```
@@ -218,27 +285,35 @@ Warnings and failures always appear in normal mode. Informational and low-level 
 
 For automation, use JSON.
 
-JSON to stdout, without human text mixed together:
+JSON to stdout (diagnostic text is suppressed):
 
 ```sh
 ./nfsdiag --json 192.168.1.10
+# or equivalently:
+./nfsdiag --json=- 192.168.1.10
 ```
 
-JSON to file, keeping stdout empty:
+JSON to file (diagnostic text still appears on stdout normally):
 
 ```sh
 ./nfsdiag --json=report.json 192.168.1.10
 ```
 
+To suppress stdout when writing JSON to a file, combine with `--quiet`:
+
+```sh
+./nfsdiag --quiet --json=report.json 192.168.1.10
+```
+
 The JSON includes:
 
-- tool name
+- tool name and version
 - host
 - timestamp
 - system information (kernel, hostname, arch)
 - summary (ok, warn, fail)
 - options used
-- exports (hierarchical list of mount tests with performance metrics, ACLs, etc)
+- exports (hierarchical list of mount tests with performance metrics, ACLs, NFS major and minor version)
 - global events
 - recommendations
 
@@ -252,7 +327,13 @@ For human-readable reports that can be easily shared or attached to tickets, use
 ./nfsdiag --html=report.html 192.168.1.10
 ```
 
-The generated HTML file is fully standalone.
+HTML to stdout (diagnostic text is suppressed):
+
+```sh
+./nfsdiag --html=- 192.168.1.10
+```
+
+The generated HTML is standalone with inline CSS. Reports are written with mode `0600` and without following symlinks (`O_NOFOLLOW`).
 
 ---
 
@@ -373,32 +454,49 @@ The NFSv4 fallback is useful when the server is NFSv4-only and mountd is not ava
 ## Command line reference
 
 ```text
-Usage: ./nfsdiag [OPTIONS] <server-ip-or-hostname>
+Usage: nfsdiag [OPTIONS] <server-ip-or-hostname>
 
-Options:
-  -e, --export PATH          Test only this export
-  -o, --mount-options OPTS   Extra mount options
-      --no-mount             Run network/RPC checks only
-      --keep-temp            Do not remove /tmp/nfsdoctor-* after tests
-      --read-only            Do not create/write test files
-      --uid UID              Simulate access as UID
+Diagnostic options:
+  -e, --export PATH          Test only this export path
+  -o, --mount-options OPTS   Extra mount options passed to mount(8)
+      --no-mount             Run network/RPC checks only; skip all mounts
+      --dry-run              Print what would be done; skip mounts and fs tests
+      --read-only            Do not create or write test files
+      --uid UID              Simulate access as UID (repeatable, needs root)
       --gid GID              GID paired with last --uid
-      --groups G1,G2         Supplemental groups for simulation
-      --timeout SEC          Network/RPC timeout
-      --command-timeout SEC  Timeout for mount/umount commands
-      --fs-timeout SEC       Timeout for filesystem operations in benchmarks
-      --mount-namespace      Use private mount namespace when possible
-      --json[=PATH]          Write JSON report
-      --udp                  Probe RPC over UDP too
-      --ipv4-only            Force IPv4 direct TCP checks
-      --ipv6-only            Force IPv6 direct TCP checks
-      --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback
+      --groups G1,G2         Supplemental GIDs for UID/GID simulation
       --krb5                 Check Kerberos prerequisites (ticket, gssd)
-      --bench-iterations N   Metadata latency iterations
-      --stale-iterations N   ESTALE loop iterations
-      --bench-bytes BYTES    Bytes used in read/write smoke test
-  -v, --verbose              Show detailed output
-  -h, --help                 Show help
+      --udp                  Also probe RPC NULLPROC over UDP
+      --ipv4-only            Force IPv4 for direct TCP checks
+      --ipv6-only            Force IPv6 for direct TCP checks
+      --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback
+      --mount-namespace      Use private mount namespace (needs root/CAP_SYS_ADMIN)
+
+Timeout options:
+      --timeout SEC          Network/RPC connect timeout. Default: 5
+      --command-timeout SEC  Timeout for mount/umount commands. Default: 30
+      --fs-timeout SEC       Timeout for each filesystem test group. Default: 30
+      --delay-ms MS          Delay between testing each export (rate limit). Default: 0
+
+Benchmark options:
+      --bench-bytes BYTES    Bytes for read/write benchmark. Default: 4194304
+      --bench-iterations N   Metadata latency iterations. Default: 10
+      --bench-type TYPE      Benchmark engine: 'internal' or 'fio'. Default: internal
+      --stale-iterations N   ESTALE probe loop iterations. Default: 100
+
+Output options:
+      --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)
+      --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)
+      --keep-temp            Keep temp workspace after tests
+  -v, --verbose              Show all diagnostic steps
+  -q, --quiet                Suppress stdout (combine with --json=FILE or --html=FILE)
+  -V, --version              Print version and exit
+  -h, --help                 Show this help
+
+Exit codes: 0=pass  1=warn/fail  2=usage/runtime error
+
+Stdout suppression: active only when --json=- or --html=- (report to stdout).
+  Use --quiet to suppress stdout when writing a report to a file.
 ```
 
 ---
@@ -449,6 +547,10 @@ make test-fixture-rpcbind-unreachable
 
 Some tests need root because they do real NFS mounts from the host. If the host cannot run kernel NFS inside Docker, the test runner skips those cases instead of failing everything.
 
+> **Warning:** Docker fixture configurations use wildcard clients, `insecure`, and `no_root_squash`
+> intentionally to simulate test scenarios. These settings are **test-only** and must **never** be
+> used in production. Each `exports.*` file in `dockerfiles/common/` carries this warning.
+
 The current fixture set includes:
 
 - `rpcbind-unreachable`
@@ -468,21 +570,54 @@ The current fixture set includes:
 
 ---
 
-## What was added in the last big update
+## What changed in v0.2.0
 
-This version has these improvements:
+Security and crash fixes:
 
-1. fully modular C architecture
-2. hierarchical per-export JSON output
-3. timeouts for filesystem operations (`--fs-timeout`)
-4. robust FD leak prevention and `poll()` migration
-5. deep metrics via `/proc/self/mountstats` and `mountinfo`
-6. RPC stats monitoring (`/proc/net/rpc/nfs`) for retransmissions
-7. client daemon prerequisite checks (`rpcbind`, `nfs-client.target`, `idmapd`)
-8. Kerberos detection and support (`--krb5`, `gssd` checks)
-9. NFSv4 ACL detection (`system.nfs4_acl`)
-10. NFSv4.1 and NFSv4.2 cascading mount support
-11. real IPv6 RPC support
+- `strdup()` return now checked in `add_event()` and `add_recommendation()` — prevents NULL dereference under OOM
+- Report files opened with `O_NOFOLLOW | O_CREAT | 0600` — prevents symlink attacks when running as root
+- XDR string limits applied to export paths (4096 bytes) and group names (256 bytes) — prevents memory exhaustion from malicious servers
+- `fio` benchmarks now use `execvp` argv array instead of `sh -c` — eliminates unnecessary shell injection surface
+- Numeric CLI arguments reject empty strings — `--uid=` is now an error, not silent zero
+
+Behavioral fixes:
+
+- `--json=file` no longer suppresses stdout; use `--quiet` to suppress explicitly
+- `--html=-` (HTML to stdout) now suppresses diagnostic text correctly
+- `--dry-run` no longer runs filesystem diagnostics on local temp dir
+- Write/read benchmark, advisory lock, and root_squash detection are now independent tests, each with its own timeout and temp file
+- `enumerate_exports()` now tries mountd v2 between v3 and v1
+- IPv6 literal addresses get brackets in mount source (`[addr]:/export`)
+- NFS minor version (4.1, 4.2) now tracked in JSON and HTML reports
+
+Robustness:
+
+- Pipe drain continues discarding data when output buffer is full — no more stall-until-timeout on large command output
+- `dup2()` return checked in child process
+- `sscanf()` return checked when parsing `/proc/net/rpc/nfs`
+- RPC counter wrap/reset detected when computing stats delta
+- `clnt_create()` and `pmap_getmaps()` protected with SIGALRM-based timeout
+- Report buffer increased from 512 to 2048 bytes — long error messages no longer truncate silently
+- Mountpoint option detection uses exact comma-separated token matching
+- Mountstats section matched by exact mountpoint field, not substring
+- Signal handlers installed without `SA_RESTART` for more responsive interruption
+
+Constants and consistency:
+
+- `RPCBIND_PORT`, `NFS_PORT`, `DEFAULT_COMMAND_TIMEOUT_SEC`, `DEFAULT_BENCH_ITERATIONS` defined in `nfsdiag.h`
+- Mountpoint buffer changed from 256 to 4096 bytes
+- Test runner now uses `mktemp` instead of predictable `/tmp` filenames
+- All 14 fixtures now included in `ALL_FIXTURES` (was 9)
+
+Portability and other:
+
+- `TMPDIR` environment variable respected for temp workspace location
+- Client daemon checks skipped gracefully on non-systemd systems
+- `TEST_TIMEOUT` now applied to each `nfsdiag` invocation in the test runner
+- `--version` / `-V` flag added
+- CLI options reorganised into logical groups (Diagnostic / Timeout / Benchmark / Output)
+- All default values shown in `--help` using named constants
+- Fixture `exports.*` files and entrypoint marked with "TEST-ONLY" comments
 
 ---
 

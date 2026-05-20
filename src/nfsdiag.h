@@ -1,6 +1,8 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
+#define NFSDIAG_VERSION "0.2.0"
+
 #include <arpa/inet.h>
 #include <dirent.h>
 #include <errno.h>
@@ -50,11 +52,21 @@
 #define NSM_PROGRAM        100024UL
 #define MOUNTPROC_EXPORT   5
 
+/* ---- well-known ports ---- */
+#define RPCBIND_PORT 111
+#define NFS_PORT     2049
+
 /* ---- defaults ---- */
-#define DEFAULT_TIMEOUT_SEC        5
-#define DEFAULT_STALE_ITERATIONS   100
-#define DEFAULT_BENCH_BYTES        (4U * 1024U * 1024U)
-#define DEFAULT_FS_TIMEOUT_SEC     30
+#define DEFAULT_TIMEOUT_SEC          5
+#define DEFAULT_STALE_ITERATIONS     100
+#define DEFAULT_BENCH_BYTES          (4U * 1024U * 1024U)
+#define DEFAULT_FS_TIMEOUT_SEC       30
+#define DEFAULT_COMMAND_TIMEOUT_SEC  30
+#define DEFAULT_BENCH_ITERATIONS     10
+
+/* ---- XDR string limits (P1-2) ---- */
+#define MAX_XDR_EXPORT_PATH  4096
+#define MAX_XDR_GROUP_NAME   256
 
 /* ---- limits ---- */
 #define MAX_EXPORTS          512
@@ -148,6 +160,7 @@ struct exportnode {
 struct mount_result {
     int  mounted;
     int  version;
+    int  nfs_minor_version;
     char mountpoint[4096];
 };
 
@@ -160,6 +173,7 @@ struct report_event {
 struct export_report {
     char   path[4096];
     int    nfs_version;
+    int    nfs_minor_version;
     int    tested;
     double write_mib_s;
     double read_mib_s;
@@ -219,7 +233,7 @@ void report_warn(const char *fmt, ...);
 void report_fail(const char *fmt, ...);
 void report_info(const char *fmt, ...);
 void report_progress(int current, int total, const char *msg);
-void enable_json_only_output(void);
+void enable_report_only_output(void);
 void write_json_report(const char *host);
 void write_html_report(const char *host);
 void print_interpretation(void);

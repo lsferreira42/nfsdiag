@@ -21,14 +21,35 @@ static int xdr_exports_type(XDR *xdrs, exports *objp) {
 }
 
 static int xdr_groupnode(XDR *xdrs, struct groupnode *objp) {
-    return xdr_string(xdrs, &objp->gr_name, ~0U) &&
+    return xdr_string(xdrs, &objp->gr_name, MAX_XDR_GROUP_NAME) &&
            xdr_groups(xdrs, &objp->gr_next);
 }
 
 static int xdr_exportnode(XDR *xdrs, struct exportnode *objp) {
-    return xdr_string(xdrs, &objp->ex_dir, ~0U) &&
+    return xdr_string(xdrs, &objp->ex_dir, MAX_XDR_EXPORT_PATH) &&
            xdr_groups(xdrs, &objp->ex_groups) &&
            xdr_exports_type(xdrs, &objp->ex_next);
+}
+
+/* ---- RPC timeout enforcement (P2-12) ---- */
+
+static volatile sig_atomic_t rpc_timeout_fired = 0;
+static void rpc_timeout_handler(int sig) { (void)sig; rpc_timeout_fired = 1; }
+
+static void arm_rpc_timeout(struct sigaction *old) {
+    rpc_timeout_fired = 0;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = rpc_timeout_handler;
+    /* no SA_RESTART: blocking calls return EINTR on timeout */
+    sigaction(SIGALRM, &sa, old);
+    alarm((unsigned)(opt.timeout_sec + 1));
+}
+
+static void disarm_rpc_timeout(const struct sigaction *old) {
+    alarm(0);
+    if (old) sigaction(SIGALRM, old, NULL);
+    rpc_timeout_fired = 0;
 }
 
 /* ---- RPC helpers ---- */
@@ -77,7 +98,10 @@ int rpc_services_has_version(const struct rpc_services *svc, unsigned long prog,
 CLIENT *rpc_client(const char *host, unsigned long prog, unsigned long vers,
                    const char *proto)
 {
+    struct sigaction old;
+    arm_rpc_timeout(&old);
     CLIENT *cl = clnt_create(host, prog, vers, proto);
+    disarm_rpc_timeout(&old);
     if (!cl && opt.verbose) clnt_pcreateerror((char *)host);
     if (cl) {
         struct timeval tv = {opt.timeout_sec, 0};
@@ -145,8 +169,11 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
         int gai = getaddrinfo(host, NULL, &hints, &res);
         if (gai == 0 && res) {
             struct sockaddr_in addr = *(struct sockaddr_in *)res->ai_addr;
-            addr.sin_port = htons(111);
+            addr.sin_port = htons(RPCBIND_PORT);
+            struct sigaction rpc_old;
+            arm_rpc_timeout(&rpc_old);
             struct pmaplist *list = pmap_getmaps(&addr);
+            disarm_rpc_timeout(&rpc_old);
             freeaddrinfo(res);
 
             if (list) {
@@ -271,18 +298,31 @@ void check_mountd_versions(const char *host, const struct rpc_services *svc) {
 static void add_export_from_rpc(struct export_list *out, const char *path, groups gr) {
     if (!path || out->count >= MAX_EXPORTS) return;
 
-    struct export_item *item = &out->items[out->count++];
-    item->path = strdup(path);
+    char *path_dup = strdup(path);
+    if (!path_dup) return;
 
     size_t group_count = 0;
     for (groups g = gr; g; g = g->gr_next) group_count++;
-    item->groups = calloc(group_count ? group_count : 1, sizeof(char *));
-    if (!item->groups) return;
+    char **group_arr = calloc(group_count ? group_count : 1, sizeof(char *));
+    if (!group_arr) { free(path_dup); return; }
 
+    size_t gc = 0;
     for (groups g = gr; g; g = g->gr_next) {
-        item->groups[item->group_count++] =
-            strdup(g->gr_name ? g->gr_name : "(null)");
+        group_arr[gc] = strdup(g->gr_name ? g->gr_name : "(null)");
+        if (!group_arr[gc]) {
+            for (size_t i = 0; i < gc; i++) free(group_arr[i]);
+            free(group_arr);
+            free(path_dup);
+            return;
+        }
+        gc++;
     }
+
+    struct export_item *item = &out->items[out->count];
+    item->path        = path_dup;
+    item->groups      = group_arr;
+    item->group_count = gc;
+    out->count++;
 }
 
 void enumerate_exports(const char *host, struct export_list *out) {
@@ -297,6 +337,7 @@ void enumerate_exports(const char *host, struct export_list *out) {
     }
 
     CLIENT *cl = rpc_client(host, MOUNT_PROGRAM, 3, "tcp");
+    if (!cl) cl = rpc_client(host, MOUNT_PROGRAM, 2, "tcp");
     if (!cl) cl = rpc_client(host, MOUNT_PROGRAM, 1, "tcp");
     if (!cl) {
         report_fail("cannot contact mountd to enumerate exports; "

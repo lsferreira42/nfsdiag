@@ -1,3 +1,6 @@
 nfsdiag
 *.o
 todo.*
+build/
+*E.md
+*l.md

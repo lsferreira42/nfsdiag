@@ -6,7 +6,7 @@ TAG_PREFIX=${DOCKER_TAG_PREFIX:-nfs-doctor-fixture}
 NFS_DIAG=${NFS_DIAG:-./nfsdiag}
 TEST_TIMEOUT=${TEST_TIMEOUT:-120}
 
-ALL_FIXTURES="rpcbind-unreachable nfs-port-unreachable rpc-map-missing-nfs mountd-unavailable locking-missing read-only-export root-squash identity-denied permission-denied"
+ALL_FIXTURES="rpcbind-unreachable nfs-port-unreachable rpc-map-missing-nfs mountd-unavailable locking-missing read-only-export root-squash identity-denied permission-denied empty-exports mount-denied acl-unsupported stale-handle slow-performance"
 
 if [ "${1:-}" = "--list" ]; then
     printf '%s\n' ${ALL_FIXTURES}
@@ -17,7 +17,8 @@ FIXTURES=${*:-${ALL_FIXTURES}}
 
 need_root_for_live() {
     case "$1" in
-        locking-missing|read-only-export|root-squash|identity-denied|permission-denied) return 0 ;;
+        locking-missing|read-only-export|root-squash|identity-denied|permission-denied|\
+        empty-exports|mount-denied|acl-unsupported|stale-handle|slow-performance) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -26,6 +27,11 @@ expected_pattern() {
     case "$1" in
         rpcbind-unreachable) printf '%s\n' 'rpcbind TCP port 111 unreachable' ;;
         nfs-port-unreachable) printf '%s\n' 'NFS TCP port 2049 unreachable' ;;
+        empty-exports) printf '%s\n' 'server returned an empty export list' ;;
+        mount-denied) printf '%s\n' 'mount attempt failed' ;;
+        acl-unsupported) printf '%s\n' 'ACL xattrs' ;;
+        stale-handle) printf '%s\n' 'ESTALE' ;;
+        slow-performance) printf '%s\n' 'timed out' ;;
         rpc-map-missing-nfs) printf '%s\n' 'NFS v4 not detected' ;;
         mountd-unavailable) printf '%s\n' 'cannot contact mountd' ;;
         locking-missing) printf '%s\n' 'NSM/statd not registered' ;;
@@ -41,12 +47,12 @@ run_nfsdiag() {
     fixture=$1
     ip=$2
     case "$fixture" in
-        read-only-export|root-squash|permission-denied)
-            "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 "$ip" ;;
+        read-only-export|root-squash|permission-denied|empty-exports|mount-denied|acl-unsupported|stale-handle|slow-performance)
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 "$ip" ;;
         identity-denied)
-            "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 "$ip" ;;
         *)
-            "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 "$ip" ;;
     esac
 }
 
@@ -78,7 +84,7 @@ for fixture in ${FIXTURES}; do
 
     image="${TAG_PREFIX}:${fixture}"
     name="nfsdoctor-test-${fixture}-$$"
-    output="/tmp/nfsdoctor-${fixture}-$$.out"
+    output=$(mktemp /tmp/nfsdoctor-test-XXXXXX.out)
 
     echo "[TEST] ${fixture}"
     build_fixture "$fixture"
@@ -92,15 +98,17 @@ for fixture in ${FIXTURES}; do
     # shellcheck disable=SC2086
     if ! "$DOCKER" run ${run_args} "$image" >/dev/null; then
         echo "[SKIP] ${fixture}: container could not be started on this host"
+        rm -f "$output"
         skip=$((skip + 1))
         continue
     fi
-    trap 'cleanup_container "$name"' EXIT INT TERM
+    trap 'rm -f "$output"; cleanup_container "$name"' EXIT INT TERM
     sleep 3
     running=$($DOCKER inspect -f '{{.State.Running}}' "$name" 2>/dev/null || true)
     if [ "$running" != "true" ]; then
         echo "[SKIP] ${fixture}: container exited early; host probably lacks required NFS/kernel privileges"
         cleanup_container "$name"
+        rm -f "$output"
         skip=$((skip + 1))
         trap - EXIT INT TERM
         continue
@@ -109,6 +117,7 @@ for fixture in ${FIXTURES}; do
     if [ -z "$ip" ]; then
         echo "[SKIP] ${fixture}: could not determine container IP"
         cleanup_container "$name"
+        rm -f "$output"
         skip=$((skip + 1))
         trap - EXIT INT TERM
         continue
@@ -131,8 +140,8 @@ for fixture in ${FIXTURES}; do
         fail=$((fail + 1))
     fi
 
-    rm -f "$output"
     cleanup_container "$name"
+    rm -f "$output"
     trap - EXIT INT TERM
 done
 

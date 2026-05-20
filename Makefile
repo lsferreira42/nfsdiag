@@ -1,5 +1,10 @@
 SHELL := /bin/sh
 
+VERSION := $(shell cat VERSION)
+PKG_NAME := nfsdiag
+DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+RPM_ARCH := $(shell uname -m)
+
 CC ?= gcc
 PKG_CONFIG ?= pkg-config
 PREFIX ?= /usr/local
@@ -33,7 +38,7 @@ DOCKER ?= docker
 DOCKERFILES := $(sort $(wildcard dockerfiles/Dockerfile.*))
 DOCKER_TAG_PREFIX ?= nfs-doctor-fixture
 
-.PHONY: all clean distclean rebuild check help install uninstall docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%)
+.PHONY: all clean distclean rebuild check help install uninstall docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -64,18 +69,30 @@ distclean: clean
 
 help:
 	@echo "Targets:"
-	@echo "  all              Build $(TARGET)"
-	@echo "  rebuild          Clean and build"
-	@echo "  check            Run a minimal CLI self-check"
-	@echo "  install          Install to DESTDIR/PREFIX, default $(PREFIX)"
-	@echo "  uninstall        Remove installed binary"
-	@echo "  clean            Remove build artifacts"
-	@echo "  distclean        Remove build/cache artifacts"
-	@echo "  docker-list      List available failure fixture Dockerfiles"
-	@echo "  docker-build-X   Build dockerfiles/Dockerfile.X as $(DOCKER_TAG_PREFIX):X"
-	@echo "  docker-build-all Build all fixture images"
-	@echo "  test-fixtures    Run automated Docker fixture tests"
-	@echo "  test-fixture-X   Run one automated Docker fixture test"
+	@echo "  all                  Build $(TARGET)"
+	@echo "  rebuild              Clean and build"
+	@echo "  check                Run a minimal CLI self-check"
+	@echo "  install              Install to DESTDIR/PREFIX, default $(PREFIX)"
+	@echo "  uninstall            Remove installed binary"
+	@echo "  clean                Remove build artifacts"
+	@echo "  distclean            Remove build/cache artifacts"
+	@echo "  docker-list          List available failure fixture Dockerfiles"
+	@echo "  docker-build-X       Build dockerfiles/Dockerfile.X as $(DOCKER_TAG_PREFIX):X"
+	@echo "  docker-build-all     Build all fixture images"
+	@echo "  test-fixtures        Run automated Docker fixture tests"
+	@echo "  test-fixture-X       Run one automated Docker fixture test"
+	@echo ""
+	@echo "Packaging:"
+	@echo "  deb                  Build Debian package (.deb) in build/"
+	@echo "  rpm                  Build RPM package (.rpm) in build/"
+	@echo "  apk                  Build Alpine package (.apk) via Docker in build/"
+	@echo "  packages             Build all packages"
+	@echo "  release              Tag, push, and create GitHub release with packages"
+	@echo ""
+	@echo "Version bumping:"
+	@echo "  bump-version-bugfix  Bump patch version (x.y.Z+1)"
+	@echo "  bump-version-minor   Bump minor version (x.Y+1.0)"
+	@echo "  bump-version-major   Bump major version (X+1.0.0)"
 
 
 docker-list:
@@ -99,3 +116,109 @@ test-fixtures-list:
 
 test-fixture-%: $(TARGET)
 	DOCKER="$(DOCKER)" DOCKER_TAG_PREFIX="$(DOCKER_TAG_PREFIX)" NFS_DIAG="./$(TARGET)" tests/run-fixture-tests.sh $*
+
+# --------------------------------------------------------------------------
+# Packaging
+# --------------------------------------------------------------------------
+
+deb: $(TARGET)
+	@echo "Building DEB package..."
+	mkdir -p build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/DEBIAN
+	mkdir -p build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/usr/bin
+	install -m 0755 $(TARGET) build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/usr/bin/$(TARGET)
+	sed -e "s/^Version: .*/Version: $(VERSION)/" \
+	    -e "s/^Architecture: .*/Architecture: $(DEB_ARCH)/" \
+	    packaging/nfsdiag.control > build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/DEBIAN/control
+	dpkg-deb --root-owner-group --build build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)
+	mv build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH).deb build/
+	@echo "DEB: build/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH).deb"
+
+rpm: $(TARGET)
+	@echo "Building RPM package..."
+	mkdir -p build/rpm/BUILD build/rpm/RPMS build/rpm/SOURCES build/rpm/SPECS build/rpm/SRPMS
+	sed "s/^Version:[[:space:]]*.*/Version:        $(VERSION)/" \
+	    packaging/nfsdiag.spec > build/rpm/SPECS/nfsdiag.spec
+	rpmbuild -bb \
+	    --define "_topdir $$(pwd)/build/rpm" \
+	    --define "srcdir $$(pwd)" \
+	    build/rpm/SPECS/nfsdiag.spec
+	find build/rpm/RPMS -name "*.rpm" -exec cp {} build/ \;
+	@echo "RPM: build/$(PKG_NAME)-$(VERSION)-1.$(RPM_ARCH).rpm"
+
+apk:
+	@echo "Building APK package via Docker..."
+	DOCKER_BUILDKIT=0 docker build \
+	    --build-arg VERSION=$(VERSION) \
+	    --target builder \
+	    -t $(PKG_NAME)-apk-builder \
+	    -f packaging/Dockerfile.apk .
+	mkdir -p build/apk
+	docker run --rm \
+	    -v $$(pwd)/build/apk:/out \
+	    $(PKG_NAME)-apk-builder \
+	    sh -c 'find /home/builder/packages -name "*.apk" -exec cp {} /out/ \;'
+	cp build/apk/*.apk build/ || true
+	@echo "APK: build/$(PKG_NAME)-$(VERSION)-r0.apk (approx name)"
+
+packages: $(TARGET)
+	mkdir -p build
+	-$(MAKE) deb
+	-$(MAKE) rpm
+	-$(MAKE) apk
+	@echo "Package build phase completed (see above for any failures)."
+
+release: packages
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "Error: working directory is not clean. Commit or stash changes first."; \
+		exit 1; \
+	fi
+	@echo "Creating GitHub release v$(VERSION)..."
+	@if git rev-parse v$(VERSION) >/dev/null 2>&1; then \
+		echo "Tag v$(VERSION) already exists, skipping tag creation."; \
+	else \
+		git tag -a v$(VERSION) -m "Release v$(VERSION)"; \
+		git push origin v$(VERSION); \
+	fi
+	@assets=""; \
+	for f in build/*.deb build/*.rpm build/*.apk; do \
+		[ -f "$$f" ] && assets="$$assets $$f"; \
+	done; \
+	if [ -n "$$assets" ]; then \
+		echo "Uploading:$$assets"; \
+		gh release create v$(VERSION) $$assets \
+		    --title "v$(VERSION)" \
+		    --notes "Release v$(VERSION)" 2>/dev/null || \
+		gh release upload v$(VERSION) $$assets --clobber; \
+	else \
+		echo "No packages found; creating empty release."; \
+		gh release create v$(VERSION) \
+		    --title "v$(VERSION)" \
+		    --notes "Release v$(VERSION)" 2>/dev/null || true; \
+	fi
+	@echo "Release v$(VERSION) done."
+
+# --------------------------------------------------------------------------
+# Version bumping
+# --------------------------------------------------------------------------
+
+bump-packaging:
+	@ver=$$(cat VERSION); \
+	sed -i "s/#define NFSDIAG_VERSION \"[^\"]*\"/#define NFSDIAG_VERSION \"$$ver\"/" src/nfsdiag.h; \
+	sed -i "s/^Version: .*/Version: $$ver/" packaging/nfsdiag.control; \
+	sed -i "s/^Version:[[:space:]]*.*/Version:        $$ver/" packaging/nfsdiag.spec; \
+	sed -i "s/^ARG VERSION=.*/ARG VERSION=$$ver/" packaging/Dockerfile.apk
+
+bump-version-bugfix:
+	@awk -F. '{print $$1"."$$2"."$$3+1}' VERSION > VERSION.tmp && mv VERSION.tmp VERSION
+	@$(MAKE) bump-packaging
+	@echo "Bumped to $$(cat VERSION)"
+
+bump-version-minor:
+	@awk -F. '{print $$1"."$$2+1".0"}' VERSION > VERSION.tmp && mv VERSION.tmp VERSION
+	@$(MAKE) bump-packaging
+	@echo "Bumped to $$(cat VERSION)"
+
+bump-version-major:
+	@awk -F. '{print $$1+1".0.0"}' VERSION > VERSION.tmp && mv VERSION.tmp VERSION
+	@$(MAKE) bump-packaging
+	@echo "Bumped to $$(cat VERSION)"

@@ -4,10 +4,10 @@
 
 struct options opt = {
     .timeout_sec        = DEFAULT_TIMEOUT_SEC,
-    .command_timeout_sec = 30,
+    .command_timeout_sec = DEFAULT_COMMAND_TIMEOUT_SEC,
     .fs_timeout_sec     = DEFAULT_FS_TIMEOUT_SEC,
     .stale_iterations   = DEFAULT_STALE_ITERATIONS,
-    .bench_iterations   = 10,
+    .bench_iterations   = DEFAULT_BENCH_ITERATIONS,
     .bench_bytes        = DEFAULT_BENCH_BYTES,
     .write_test         = 1,
     .nfs4_discovery     = 1,
@@ -55,18 +55,23 @@ static void signal_handler(int sig) { received_signal = sig; }
 
 static void install_cleanup_handlers(void) {
     atexit(cleanup_all);
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGHUP, signal_handler);
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = signal_handler;
+    /* no SA_RESTART: blocking syscalls return EINTR on signal */
+    sigaction(SIGINT,  &sa, NULL);
+    sigaction(SIGTERM, &sa, NULL);
+    sigaction(SIGHUP,  &sa, NULL);
 }
 
 /* ---- CLI helpers ---- */
 
 static int parse_ulong_arg(const char *s, unsigned long *out) {
+    if (!s || *s == '\0') return -1;
     char *end = NULL;
     errno = 0;
     unsigned long v = strtoul(s, &end, 10);
-    if (errno || !end || *end != '\0') return -1;
+    if (errno || !end || end == s || *end != '\0') return -1;
     *out = v;
     return 0;
 }
@@ -105,37 +110,42 @@ static gid_t default_gid_for_uid(uid_t uid) {
 
 static void usage(const char *p) {
     printf("Usage: %s [OPTIONS] <server-ip-or-hostname>\n", p);
-    printf("\nOptions:\n");
-    printf("  -e, --export PATH          Test only this export\n");
-    printf("  -o, --mount-options OPTS   Extra mount options\n");
-    printf("      --no-mount             Run network/RPC checks only\n");
-    printf("      --dry-run              Skip actual mount operations (print what would be done)\n");
-    printf("      --keep-temp            Do not remove /tmp/nfsdoctor-* after tests\n");
-    printf("      --read-only            Do not create/write test files\n");
+    printf("\nDiagnostic options:\n");
+    printf("  -e, --export PATH          Test only this export path\n");
+    printf("  -o, --mount-options OPTS   Extra mount options passed to mount(8)\n");
+    printf("      --no-mount             Run network/RPC checks only; skip all mounts\n");
+    printf("      --dry-run              Print what would be done; skip mounts and fs tests\n");
+    printf("      --read-only            Do not create or write test files\n");
     printf("      --uid UID              Simulate access as UID (repeatable, needs root)\n");
     printf("      --gid GID              GID paired with last --uid\n");
-    printf("      --timeout SEC          Network/RPC timeout. Default: %d\n", DEFAULT_TIMEOUT_SEC);
-    printf("      --command-timeout SEC  Timeout for mount/umount commands. Default: 30\n");
-    printf("      --fs-timeout SEC       Timeout for filesystem operations in benchmarks. Default: %d\n", DEFAULT_FS_TIMEOUT_SEC);
-    printf("      --mount-namespace      Use private mount namespace when possible\n");
-    printf("      --json[=PATH]          Emit JSON report to PATH or stdout\n");
-    printf("      --html[=PATH]          Emit HTML report to PATH or stdout\n");
-    printf("      --groups G1,G2         Supplemental groups for UID/GID simulation\n");
+    printf("      --groups G1,G2         Supplemental GIDs for UID/GID simulation\n");
+    printf("      --krb5                 Check Kerberos prerequisites (ticket, gssd)\n");
     printf("      --udp                  Also probe RPC NULLPROC over UDP\n");
     printf("      --ipv4-only            Force IPv4 for direct TCP checks\n");
     printf("      --ipv6-only            Force IPv6 for direct TCP checks\n");
     printf("      --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback\n");
-    printf("      --krb5                 Check Kerberos prerequisites (ticket, gssd)\n");
-    printf("      --bench-iterations N   Metadata latency iterations. Default: 10\n");
+    printf("      --mount-namespace      Use private mount namespace (needs root/CAP_SYS_ADMIN)\n");
+    printf("\nTimeout options:\n");
+    printf("      --timeout SEC          Network/RPC connect timeout. Default: %d\n", DEFAULT_TIMEOUT_SEC);
+    printf("      --command-timeout SEC  Timeout for mount/umount commands. Default: %d\n", DEFAULT_COMMAND_TIMEOUT_SEC);
+    printf("      --fs-timeout SEC       Timeout for each filesystem test group. Default: %d\n", DEFAULT_FS_TIMEOUT_SEC);
+    printf("      --delay-ms MS          Delay between testing each export (rate limit). Default: 0\n");
+    printf("\nBenchmark options:\n");
     printf("      --bench-bytes BYTES    Bytes for read/write benchmark. Default: %u\n", DEFAULT_BENCH_BYTES);
-    printf("      --bench-type TYPE      Benchmark tool ('internal' or 'fio'). Default: internal\n");
-    printf("      --stale-iterations N   ESTALE loop iterations. Default: %d\n", DEFAULT_STALE_ITERATIONS);
-    printf("      --delay-ms MS          Delay in milliseconds between testing each export\n");
-    printf("  -v, --verbose              Show detailed output\n");
-    printf("  -q, --quiet                Suppress standard output (useful with --json or --html)\n");
+    printf("      --bench-iterations N   Metadata latency iterations. Default: %d\n", DEFAULT_BENCH_ITERATIONS);
+    printf("      --bench-type TYPE      Benchmark engine: 'internal' or 'fio'. Default: internal\n");
+    printf("      --stale-iterations N   ESTALE probe loop iterations. Default: %d\n", DEFAULT_STALE_ITERATIONS);
+    printf("\nOutput options:\n");
+    printf("      --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)\n");
+    printf("      --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)\n");
+    printf("      --keep-temp            Keep temp workspace after tests\n");
+    printf("  -v, --verbose              Show all diagnostic steps\n");
+    printf("  -q, --quiet                Suppress stdout (combine with --json=FILE or --html=FILE)\n");
+    printf("  -V, --version              Print version and exit\n");
     printf("  -h, --help                 Show this help\n");
-    printf("\nExit codes:\n");
-    printf("  0 = no failures detected, 1 = warnings/failures detected, 2 = usage/runtime error\n");
+    printf("\nExit codes: 0=pass  1=warn/fail  2=usage/runtime error\n");
+    printf("Stdout suppression: active only when --json=- or --html=- (report to stdout).\n");
+    printf("  Use --quiet to suppress stdout when writing a report to a file.\n");
 }
 
 int main(int argc, char **argv) {
@@ -167,18 +177,25 @@ int main(int argc, char **argv) {
         {"krb5",             no_argument,       0, 1018},
         {"verbose",          no_argument,       0, 'v'},
         {"quiet",            no_argument,       0, 'q'},
+        {"version",          no_argument,       0, 'V'},
         {"help",             no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
 
+    /*
+     * CLI parsing uses fprintf(stderr) directly (not report_fail) because the
+     * report subsystem is not yet initialised at this point. report_fail would
+     * crash or produce garbled output since events[] is still NULL.
+     */
     int c;
-    while ((c = getopt_long(argc, argv, "e:o:vqh", long_opts, NULL)) != -1) {
+    while ((c = getopt_long(argc, argv, "e:o:vqVh", long_opts, NULL)) != -1) {
         unsigned long value;
         switch (c) {
         case 'e': opt.single_export = optarg; break;
         case 'o': opt.mount_options = optarg; break;
         case 'v': opt.verbose = 1; break;
         case 'q': opt.quiet = 1; break;
+        case 'V': printf("nfsdiag %s\n", NFSDIAG_VERSION); return 0;
         case 'h': usage(argv[0]); return 0;
         case 1000: opt.no_mount = 1; break;
         case 1001: opt.keep_temp = 1; break;
@@ -206,6 +223,10 @@ int main(int argc, char **argv) {
             opt.bench_bytes = (size_t)value;
             break;
         case 1022:
+            if (strcmp(optarg, "internal") != 0 && strcmp(optarg, "fio") != 0) {
+                fprintf(stderr, "invalid --bench-type: %s (valid values: internal, fio)\n", optarg);
+                return 2;
+            }
             opt.bench_type = optarg;
             break;
         case 1008:
@@ -265,8 +286,8 @@ int main(int argc, char **argv) {
     }
 
     install_cleanup_handlers();
-    enable_json_only_output();
-    printf("nfsdiag: %s\n", host);
+    printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
+    enable_report_only_output();
 
     /* client-side checks */
     check_client_daemons();
@@ -292,10 +313,13 @@ int main(int argc, char **argv) {
         return summary_fail || summary_warn ? 1 : 0;
     }
 
-    setup_mount_namespace();
+    if (setup_mount_namespace() < 0 && opt.mount_namespace)
+        report_warn("proceeding without private mount namespace; mounts will affect the global namespace");
 
     if (opt.verbose) printf("\n[+] Temporary mount workspace\n");
-    snprintf(cleanup_base, sizeof(cleanup_base), "/tmp/nfsdoctor-XXXXXX");
+    const char *tmpdir = getenv("TMPDIR");
+    if (!tmpdir || !tmpdir[0]) tmpdir = "/tmp";
+    snprintf(cleanup_base, sizeof(cleanup_base), "%s/nfsdoctor-XXXXXX", tmpdir);
     if (!mkdtemp(cleanup_base)) {
         report_fail("mkdtemp failed under /tmp: %s", strerror(errno));
         write_json_report(host);
@@ -320,7 +344,7 @@ int main(int argc, char **argv) {
             report_warn("received signal %d, stopping further mount diagnostics", received_signal);
             break;
         }
-        char mp[256];
+        char mp[4096];
         snprintf(mp, sizeof(mp), "%s/export-%zu", cleanup_base, i + 1);
         if (make_dir(mp, 0700) != 0) {
             report_fail("cannot create mountpoint %s: %s", mp, strerror(errno));
@@ -339,16 +363,18 @@ int main(int argc, char **argv) {
         if (mount_export(host, exports_found.items[i].path, mp, &mr) == 0) {
             if (export_report_count < MAX_EXPORT_REPORTS) {
                 export_reports[export_report_count].nfs_version = mr.version;
-                export_reports[export_report_count].tested = 1;
+                export_reports[export_report_count].nfs_minor_version = mr.nfs_minor_version;
+                export_reports[export_report_count].tested = !opt.dry_run;
             }
             size_t idx = export_report_count;
             if (export_report_count < MAX_EXPORT_REPORTS) export_report_count++;
 
-            diagnose_mounted_export(exports_found.items[i].path, mp, (int)idx);
-
-            if (unmount_export(mp) != 0) {
-                report_warn("leaving mountpoint in place for safety: %s", mp);
-                opt.keep_temp = 1;
+            if (!opt.dry_run) {
+                diagnose_mounted_export(exports_found.items[i].path, mp, (int)idx);
+                if (unmount_export(mp) != 0) {
+                    report_warn("leaving mountpoint in place for safety: %s", mp);
+                    opt.keep_temp = 1;
+                }
             }
         } else {
             if (export_report_count < MAX_EXPORT_REPORTS) export_report_count++;

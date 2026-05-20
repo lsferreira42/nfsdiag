@@ -162,14 +162,16 @@ static void test_metadata_latency(const char *mp, struct export_report *rpt) {
     free(samples);
 }
 
-static void test_write_read_perf_lock_root_squash(const char *mp, struct export_report *rpt) {
-    if (!opt.write_test) { report_info("write/read, locking, performance and root_squash tests skipped by --read-only"); return; }
+static void test_write_read_benchmark(const char *mp, struct export_report *rpt) {
+    if (!opt.write_test) {
+        report_info("write/read benchmark skipped by --read-only");
+        return;
+    }
     char path[4096];
-    make_test_path(path, sizeof(path), mp, "io-test");
+    make_test_path(path, sizeof(path), mp, "io-bench");
     struct sigaction old_sa;
     arm_fs_timeout(&old_sa);
-    struct timespec w0, w1, r0, r1;
-    clock_gettime(CLOCK_MONOTONIC, &w0);
+
     int fd = open(path, O_CREAT | O_TRUNC | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         disarm_fs_timeout(&old_sa);
@@ -178,18 +180,38 @@ static void test_write_read_perf_lock_root_squash(const char *mp, struct export_
         add_recommendation("Create/write failed: check export ro/rw options, UNIX mode bits, ACLs, root_squash, idmapping, and server-side MAC policies.");
         return;
     }
+
     if (opt.bench_type && strcmp(opt.bench_type, "fio") == 0) {
-        char fio_cmd[8192];
-        snprintf(fio_cmd, sizeof(fio_cmd), "fio --name=nfsdiag --ioengine=sync --rw=write --bs=1M --size=%zu --filename=%s --output-format=json", opt.bench_bytes, path);
+        char fio_size[64], fio_file[4096 + 16];
+        int rs = snprintf(fio_size, sizeof(fio_size), "--size=%zu", opt.bench_bytes);
+        int rf = snprintf(fio_file, sizeof(fio_file), "--filename=%s", path);
+        if (rs < 0 || (size_t)rs >= sizeof(fio_size) ||
+            rf < 0 || (size_t)rf >= sizeof(fio_file)) {
+            report_warn("fio argument construction truncated; skipping fio benchmark");
+            close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+        }
         char output[CMD_OUTPUT_LIMIT];
-        char *argv[] = {"sh", "-c", fio_cmd, NULL};
-        if (run_command_capture(argv, output, sizeof(output)) == 0) {
+        char *fio_write_argv[] = {"fio", "--name=nfsdiag", "--ioengine=sync",
+                                  "--rw=write", "--bs=1M", fio_size, fio_file,
+                                  "--output-format=json", NULL};
+        if (run_command_capture(fio_write_argv, output, sizeof(output)) == 0) {
             report_ok("fio write benchmark completed (check JSON for full stats)");
-            rpt->write_mib_s = -1.0; /* signals fio usage */
+            rpt->write_mib_s = -1.0;
         } else {
             report_warn("fio write benchmark failed");
         }
+        char *fio_read_argv[] = {"fio", "--name=nfsdiag", "--ioengine=sync",
+                                 "--rw=read", "--bs=1M", fio_size, fio_file,
+                                 "--output-format=json", NULL};
+        if (run_command_capture(fio_read_argv, output, sizeof(output)) == 0) {
+            report_ok("fio read benchmark completed (check JSON for full stats)");
+            rpt->read_mib_s = -1.0;
+        } else {
+            report_warn("fio read benchmark failed");
+        }
     } else {
+        struct timespec w0, w1, r0, r1;
+        clock_gettime(CLOCK_MONOTONIC, &w0);
         if (fs_timeout_fired || fill_file(fd, opt.bench_bytes) != 0) {
             if (fs_timeout_fired) report_warn("write benchmark timed out after %d seconds", opt.fs_timeout_sec);
             else if (errno == ESTALE) report_fail("write returned ESTALE");
@@ -200,58 +222,117 @@ static void test_write_read_perf_lock_root_squash(const char *mp, struct export_
         }
         if (fsync(fd) != 0) report_warn("fsync failed: %s", strerror(errno));
         clock_gettime(CLOCK_MONOTONIC, &w1);
-    }
 
-    struct flock fl; memset(&fl, 0, sizeof(fl)); fl.l_type = F_WRLCK; fl.l_whence = SEEK_SET;
-    if (fcntl(fd, F_SETLK, &fl) == 0) {
-        report_ok("fcntl advisory write lock succeeded (basic NLM/NFSv4 locking path works)");
-        rpt->lock_ok = 1; fl.l_type = F_UNLCK; (void)fcntl(fd, F_SETLK, &fl);
-    } else report_warn("fcntl advisory lock failed: %s", strerror(errno));
-
-    struct stat st;
-    if (fstat(fd, &st) == 0) {
-        if (geteuid() == 0) {
-            if (st.st_uid == 0) report_ok("root_squash practical signal: file created by root is owned by uid 0 (likely no_root_squash)");
-            else { report_warn("root_squash practical signal: file created by root is owned by uid %lu gid %lu (root is likely squashed)", (unsigned long)st.st_uid, (unsigned long)st.st_gid); rpt->root_squash_detected = 1; add_recommendation("root_squash appears active: run tests as the application UID/GID with --uid/--gid to validate real access."); }
-        } else report_info("root_squash practical test requires root; current euid=%lu", (unsigned long)geteuid());
-    } else if (errno == ESTALE) report_fail("fstat test file returned ESTALE");
-    else report_warn("fstat test file failed: %s", strerror(errno));
-
-    if (opt.bench_type && strcmp(opt.bench_type, "fio") == 0) {
-        char fio_cmd[8192];
-        snprintf(fio_cmd, sizeof(fio_cmd), "fio --name=nfsdiag --ioengine=sync --rw=read --bs=1M --size=%zu --filename=%s --output-format=json", opt.bench_bytes, path);
-        char output[CMD_OUTPUT_LIMIT];
-        char *argv[] = {"sh", "-c", fio_cmd, NULL};
-        if (run_command_capture(argv, output, sizeof(output)) == 0) {
-            report_ok("fio read benchmark completed (check JSON for full stats)");
-            rpt->read_mib_s = -1.0; /* signals fio usage */
-        } else {
-            report_warn("fio read benchmark failed");
-        }
-    } else {
         lseek(fd, 0, SEEK_SET);
-        char buf[65536]; size_t left = opt.bench_bytes;
+        char buf[65536];
+        size_t left = opt.bench_bytes;
         clock_gettime(CLOCK_MONOTONIC, &r0);
         while (left && !fs_timeout_fired) {
             size_t chunk = left < sizeof(buf) ? left : sizeof(buf);
             ssize_t n = read(fd, buf, chunk);
-            if (n < 0) { if (errno == ESTALE) report_fail("read returned ESTALE"); else report_fail("readback failed: %s", strerror(errno)); break; }
+            if (n < 0) {
+                if (errno == ESTALE) report_fail("read returned ESTALE");
+                else report_fail("readback failed: %s", strerror(errno));
+                break;
+            }
             if (n == 0) break;
             left -= (size_t)n;
         }
         clock_gettime(CLOCK_MONOTONIC, &r1);
-    }
-    disarm_fs_timeout(&old_sa);
-    
-    if (!opt.bench_type || strcmp(opt.bench_type, "fio") != 0) {
+
         double write_ms = elapsed_ms(w0, w1), read_ms = elapsed_ms(r0, r1);
         double mib = (double)opt.bench_bytes / (1024.0 * 1024.0);
-        if (write_ms > 0.0) { rpt->write_mib_s = mib / (write_ms / 1000.0); report_ok("write+fsync benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)", mib, write_ms, rpt->write_mib_s); }
-        if (read_ms > 0.0) { rpt->read_mib_s = mib / (read_ms / 1000.0); report_ok("read benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)", mib, read_ms, rpt->read_mib_s); }
+        if (write_ms > 0.0) {
+            rpt->write_mib_s = mib / (write_ms / 1000.0);
+            report_ok("write+fsync benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)", mib, write_ms, rpt->write_mib_s);
+        }
+        if (read_ms > 0.0) {
+            rpt->read_mib_s = mib / (read_ms / 1000.0);
+            report_ok("read benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)", mib, read_ms, rpt->read_mib_s);
+        }
     }
+
+    disarm_fs_timeout(&old_sa);
     close(fd);
-    if (unlink(path) == 0) report_ok("test file cleanup succeeded");
-    else report_warn("test file cleanup failed: %s", strerror(errno));
+    if (unlink(path) != 0)
+        report_warn("test file cleanup failed: %s", strerror(errno));
+}
+
+static void test_advisory_lock(const char *mp, struct export_report *rpt) {
+    if (!opt.write_test) return;
+    char path[4096];
+    make_test_path(path, sizeof(path), mp, "lock-test");
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
+
+    int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        disarm_fs_timeout(&old_sa);
+        report_info("advisory lock test skipped: cannot create file: %s", strerror(errno));
+        return;
+    }
+    if (write(fd, "x", 1) < 0) {
+        close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+    }
+
+    struct flock fl;
+    memset(&fl, 0, sizeof(fl));
+    fl.l_type = F_WRLCK;
+    fl.l_whence = SEEK_SET;
+    if (fcntl(fd, F_SETLK, &fl) == 0) {
+        report_ok("fcntl advisory write lock succeeded (basic NLM/NFSv4 locking path works)");
+        rpt->lock_ok = 1;
+        fl.l_type = F_UNLCK;
+        (void)fcntl(fd, F_SETLK, &fl);
+    } else {
+        report_warn("fcntl advisory lock failed: %s", strerror(errno));
+    }
+
+    disarm_fs_timeout(&old_sa);
+    close(fd);
+    unlink(path);
+}
+
+static void test_root_squash(const char *mp, struct export_report *rpt) {
+    if (!opt.write_test) return;
+    char path[4096];
+    make_test_path(path, sizeof(path), mp, "squash-test");
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
+
+    int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) {
+        disarm_fs_timeout(&old_sa);
+        report_info("root_squash test skipped: cannot create file: %s", strerror(errno));
+        return;
+    }
+    if (write(fd, "x", 1) < 0) {
+        close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+    }
+
+    struct stat st;
+    if (fstat(fd, &st) == 0) {
+        if (geteuid() == 0) {
+            if (st.st_uid == 0) {
+                report_ok("root_squash practical signal: file created by root is owned by uid 0 (likely no_root_squash)");
+            } else {
+                report_warn("root_squash practical signal: file created by root is owned by uid %lu gid %lu (root is likely squashed)",
+                            (unsigned long)st.st_uid, (unsigned long)st.st_gid);
+                rpt->root_squash_detected = 1;
+                add_recommendation("root_squash appears active: run tests as the application UID/GID with --uid/--gid to validate real access.");
+            }
+        } else {
+            report_info("root_squash practical test requires root; current euid=%lu", (unsigned long)geteuid());
+        }
+    } else if (errno == ESTALE) {
+        report_fail("fstat test file returned ESTALE");
+    } else {
+        report_warn("fstat test file failed: %s", strerror(errno));
+    }
+
+    disarm_fs_timeout(&old_sa);
+    close(fd);
+    unlink(path);
 }
 
 static void test_special_files(const char *mp) {
@@ -359,7 +440,7 @@ static void test_fallocate_odirect(const char *mp) {
     make_test_path(path, sizeof(path), mp, "falloc");
     int fd = open(path, O_CREAT | O_RDWR | O_DIRECT | O_NOFOLLOW, 0600);
     if (fd >= 0) {
-        report_ok("O_DIRECT open succeeded (bypassing page cache allowed)");
+        report_ok("O_DIRECT flag accepted by mount (page cache bypass may be available)");
         if (fallocate(fd, 0, 0, 1024 * 1024) == 0) {
             report_ok("fallocate succeeded (pre-allocation supported)");
         } else {
@@ -474,7 +555,9 @@ void diagnose_mounted_export(const char *export_path, const char *mountpoint, in
     test_directory_access(mountpoint);
     test_acl(mountpoint, rpt);
     test_identity_simulation(mountpoint);
-    test_write_read_perf_lock_root_squash(mountpoint, rpt);
+    test_write_read_benchmark(mountpoint, rpt);
+    test_advisory_lock(mountpoint, rpt);
+    test_root_squash(mountpoint, rpt);
     test_special_files(mountpoint);
     test_xattr_support(mountpoint);
     test_copy_file_range(mountpoint);

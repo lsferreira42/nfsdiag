@@ -1,4 +1,7 @@
 #!/bin/sh
+# TEST-ONLY entrypoint for nfs-doctor fixture containers.
+# This script uses insecure NFS export options (wildcard, insecure, no_root_squash).
+# NEVER use this configuration or these exports in a production environment.
 set -eu
 
 mkdir -p /run/rpcbind /run/lock /var/lib/nfs /var/lib/nfs/rpc_pipefs /proc/fs/nfsd /export

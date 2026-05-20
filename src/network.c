@@ -73,17 +73,17 @@ int tcp_connect_timeout(const char *host, int port, int timeout_sec) {
 void network_tests(const char *host) {
     if (opt.verbose) printf("\n[+] Network checks\n");
 
-    if (tcp_connect_timeout(host, 111, opt.timeout_sec) == 0)
-        report_ok("rpcbind TCP port 111 reachable");
+    if (tcp_connect_timeout(host, RPCBIND_PORT, opt.timeout_sec) == 0)
+        report_ok("rpcbind TCP port %d reachable", RPCBIND_PORT);
     else {
-        report_fail("rpcbind TCP port 111 unreachable: %s", strerror(errno));
-        add_recommendation("TCP/111 is unreachable: check firewall, rpcbind status, routing, or whether the server is intentionally NFSv4-only.");
+        report_fail("rpcbind TCP port %d unreachable: %s", RPCBIND_PORT, strerror(errno));
+        add_recommendation("TCP/%d is unreachable: check firewall, rpcbind status, routing, or whether the server is intentionally NFSv4-only.", RPCBIND_PORT);
     }
 
-    if (tcp_connect_timeout(host, 2049, opt.timeout_sec) == 0)
-        report_ok("NFS TCP port 2049 reachable");
+    if (tcp_connect_timeout(host, NFS_PORT, opt.timeout_sec) == 0)
+        report_ok("NFS TCP port %d reachable", NFS_PORT);
     else {
-        report_fail("NFS TCP port 2049 unreachable: %s", strerror(errno));
-        add_recommendation("TCP/2049 is unreachable: verify nfsd/ganesha is running and allowed through firewalls/security groups.");
+        report_fail("NFS TCP port %d unreachable: %s", NFS_PORT, strerror(errno));
+        add_recommendation("TCP/%d is unreachable: verify nfsd/ganesha is running and allowed through firewalls/security groups.", NFS_PORT);
     }
 }

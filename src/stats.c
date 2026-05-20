@@ -3,9 +3,20 @@
 /* ---- dependency checks ---- */
 
 static int command_exists(const char *cmd) {
-    char check[512];
-    snprintf(check, sizeof(check), "command -v %s >/dev/null 2>&1", cmd);
-    return system(check) == 0;
+    if (strchr(cmd, '/'))
+        return access(cmd, X_OK) == 0;
+    const char *path_env = getenv("PATH");
+    if (!path_env || !path_env[0]) path_env = "/usr/bin:/bin:/usr/sbin:/sbin";
+    char path_copy[4096];
+    snprintf(path_copy, sizeof(path_copy), "%s", path_env);
+    char *save = NULL;
+    for (char *dir = strtok_r(path_copy, ":", &save); dir; dir = strtok_r(NULL, ":", &save)) {
+        char full[4096];
+        if (snprintf(full, sizeof(full), "%s/%s", dir, cmd) >= (int)sizeof(full)) continue;
+        struct stat st;
+        if (stat(full, &st) == 0 && (st.st_mode & S_IXUSR)) return 1;
+    }
+    return 0;
 }
 
 int check_dependencies(void) {
@@ -34,6 +45,12 @@ int check_dependencies(void) {
 
 void check_client_daemons(void) {
     if (opt.verbose) printf("\n[+] Client daemon checks\n");
+
+    /* skip systemd-specific checks on non-systemd systems */
+    if (!command_exists("systemctl")) {
+        report_info("systemctl not found; client daemon checks skipped (non-systemd system)");
+        return;
+    }
 
     char output[CMD_OUTPUT_LIMIT];
 
@@ -102,18 +119,19 @@ int capture_rpc_stats(struct rpc_stats *out) {
     }
 
     char line[1024];
+    int net_ok = 0, rpc_ok = 0;
     while (fgets(line, sizeof(line), f)) {
         if (strncmp(line, "net ", 4) == 0) {
-            sscanf(line, "net %lu %lu %lu",
-                   &out->net_count, &out->net_udp, &out->net_tcp);
+            net_ok = (sscanf(line, "net %lu %lu %lu",
+                       &out->net_count, &out->net_udp, &out->net_tcp) == 3);
         } else if (strncmp(line, "rpc ", 4) == 0) {
-            sscanf(line, "rpc %lu %lu %lu",
-                   &out->rpc_calls, &out->rpc_retrans, &out->rpc_auth_refresh);
+            rpc_ok = (sscanf(line, "rpc %lu %lu %lu",
+                       &out->rpc_calls, &out->rpc_retrans, &out->rpc_auth_refresh) == 3);
         }
     }
     fclose(f);
-    out->valid = 1;
-    return 0;
+    out->valid = net_ok && rpc_ok;
+    return out->valid ? 0 : -1;
 }
 
 void report_rpc_stats_diff(const struct rpc_stats *before, const struct rpc_stats *after) {
@@ -122,9 +140,16 @@ void report_rpc_stats_diff(const struct rpc_stats *before, const struct rpc_stat
         return;
     }
 
-    unsigned long calls = after->rpc_calls - before->rpc_calls;
-    unsigned long retrans = after->rpc_retrans - before->rpc_retrans;
-    unsigned long auth = after->rpc_auth_refresh - before->rpc_auth_refresh;
+    unsigned long calls, retrans, auth;
+    if (after->rpc_calls >= before->rpc_calls)
+        calls = after->rpc_calls - before->rpc_calls;
+    else { report_warn("RPC call counter reset or wrapped during test"); calls = 0; }
+    if (after->rpc_retrans >= before->rpc_retrans)
+        retrans = after->rpc_retrans - before->rpc_retrans;
+    else { report_warn("RPC retrans counter reset or wrapped during test"); retrans = 0; }
+    if (after->rpc_auth_refresh >= before->rpc_auth_refresh)
+        auth = after->rpc_auth_refresh - before->rpc_auth_refresh;
+    else { report_warn("RPC auth_refresh counter reset or wrapped during test"); auth = 0; }
 
     report_ok("RPC stats delta: calls=%lu retransmits=%lu auth_refresh=%lu", calls, retrans, auth);
 
@@ -153,7 +178,22 @@ void parse_mountstats(const char *mountpoint) {
     while (fgets(line, sizeof(line), f)) {
         /* device lines start with "device " */
         if (strncmp(line, "device ", 7) == 0) {
-            if (strstr(line, mountpoint)) {
+            /* Parse "device <src> mounted on <mp> with fstype <type>" exactly */
+            char *mop = strstr(line, " mounted on ");
+            int matched = 0;
+            if (mop) {
+                char *mp_start = mop + 12;
+                char *mp_end = strstr(mp_start, " with fstype");
+                if (mp_end) {
+                    size_t mp_len = (size_t)(mp_end - mp_start);
+                    char dev_mp[4096] = {0};
+                    if (mp_len < sizeof(dev_mp)) {
+                        memcpy(dev_mp, mp_start, mp_len);
+                        matched = (strcmp(dev_mp, mountpoint) == 0);
+                    }
+                }
+            }
+            if (matched) {
                 found = 1;
                 in_section = 1;
                 if (opt.verbose) report_info("mountstats for %s: %s", mountpoint, line);
@@ -240,17 +280,32 @@ void verify_mount_options(const char *mountpoint, struct export_report *report) 
         if (sscanf(sep + 3, "%255s %4095s %2047s", fstype, source, super_opts) < 2)
             continue;
 
-        char combined[4096];
-        snprintf(combined, sizeof(combined), "%s,%s", mount_opts, super_opts);
+        char combined[4097]; /* 2048 + comma + 2048 */
+        int cn = snprintf(combined, sizeof(combined), "%s,%s", mount_opts, super_opts);
+        if (cn < 0 || (size_t)cn >= sizeof(combined))
+            report_warn("effective mount options were truncated; some options may not be shown");
         snprintf(report->effective_mount_opts, sizeof(report->effective_mount_opts), "%.2047s", combined);
 
         report_ok("effective mount options for %s: %s", mountpoint, combined);
 
-        /* check for notable options */
-        if (strstr(combined, "hard")) report_info("mount is 'hard' (will retry indefinitely on server failure)");
-        if (strstr(combined, "soft")) report_info("mount is 'soft' (will return errors on timeout)");
-        if (strstr(combined, "noatime")) report_info("noatime is set (reduces GETATTR calls)");
-        if (strstr(combined, "nconnect")) report_info("nconnect detected (multiple TCP connections per mount)");
+        /* check for notable options — compare exact comma-separated tokens */
+        char opt_copy[4097];
+        snprintf(opt_copy, sizeof(opt_copy), "%s", combined);
+        char *save_opt = NULL;
+        int has_hard = 0, has_soft = 0, has_noatime = 0, has_nconnect = 0;
+        for (char *tok = strtok_r(opt_copy, ",", &save_opt); tok;
+             tok = strtok_r(NULL, ",", &save_opt)) {
+            if (strcmp(tok, "hard")    == 0) has_hard    = 1;
+            if (strcmp(tok, "soft")    == 0) has_soft    = 1;
+            if (strcmp(tok, "noatime") == 0) has_noatime = 1;
+            /* nconnect=N: check prefix */
+            if (strncmp(tok, "nconnect", 8) == 0 &&
+                (tok[8] == '\0' || tok[8] == '=')) has_nconnect = 1;
+        }
+        if (has_hard)     report_info("mount is 'hard' (will retry indefinitely on server failure)");
+        if (has_soft)     report_info("mount is 'soft' (will return errors on timeout)");
+        if (has_noatime)  report_info("noatime is set (reduces GETATTR calls)");
+        if (has_nconnect) report_info("nconnect detected (multiple TCP connections per mount)");
 
         fclose(f);
         return;

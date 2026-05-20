@@ -1,0 +1,32 @@
+FROM alpine:3.18 AS builder
+RUN apk add --no-cache build-base pkgconf libtirpc-dev alpine-sdk sudo
+
+RUN adduser -G abuild -g "Alpine Package Builder" -s /bin/sh -D builder && \
+    echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+USER builder
+WORKDIR /home/builder
+RUN abuild-keygen -n -a -i
+
+COPY --chown=builder:abuild . source/
+WORKDIR /home/builder/source
+
+RUN make
+
+ARG VERSION=0.2.0
+
+RUN echo 'pkgname=nfsdiag' > APKBUILD && \
+    echo "pkgver=${VERSION}" >> APKBUILD && \
+    echo 'pkgrel=0' >> APKBUILD && \
+    echo 'pkgdesc="NFS diagnostic tool"' >> APKBUILD && \
+    echo 'url="https://github.com/lsferreira42/nfsdiag"' >> APKBUILD && \
+    echo 'arch="x86_64"' >> APKBUILD && \
+    echo 'license="MIT"' >> APKBUILD && \
+    echo 'depends="libtirpc"' >> APKBUILD && \
+    echo 'makedepends="build-base pkgconf libtirpc-dev"' >> APKBUILD && \
+    echo 'source=""' >> APKBUILD && \
+    echo 'build() { :; }' >> APKBUILD && \
+    echo 'package() {' >> APKBUILD && \
+    echo '    install -Dm755 nfsdiag "$pkgdir"/usr/bin/nfsdiag' >> APKBUILD && \
+    echo '}' >> APKBUILD
+
+RUN abuild -F checksum && abuild -F rootpkg

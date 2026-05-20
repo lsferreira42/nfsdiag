@@ -47,12 +47,11 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
         prctl(PR_SET_PDEATHSIG, SIGKILL);
         setpgid(0, 0);
         close(pipefd[0]);
-        dup2(pipefd[1], STDOUT_FILENO);
-        dup2(pipefd[1], STDERR_FILENO);
+        if (dup2(pipefd[1], STDOUT_FILENO) < 0) _exit(127);
+        if (dup2(pipefd[1], STDERR_FILENO) < 0) _exit(127);
         close(pipefd[1]);
         close_inherited_fds(-1, -1);
         execvp(argv[0], argv);
-        fprintf(stderr, "execvp(%s) failed: %s\n", argv[0], strerror(errno));
         _exit(127);
     }
 
@@ -68,11 +67,15 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
 
     while (!child_done) {
         ssize_t n;
-        while ((n = read(pipefd[0], output + used,
-                         output_sz > used + 1 ? output_sz - used - 1 : 0)) > 0) {
-            used += (size_t)n;
-            if (used >= output_sz - 1) break;
-        }
+        do {
+            if (used < output_sz - 1) {
+                n = read(pipefd[0], output + used, output_sz - used - 1);
+                if (n > 0) used += (size_t)n;
+            } else {
+                char discard[4096];
+                n = read(pipefd[0], discard, sizeof(discard));
+            }
+        } while (n > 0);
         if (n < 0 && errno != EAGAIN && errno != EINTR) break;
 
         pid_t wr = waitpid(pid, &status, WNOHANG);
@@ -100,11 +103,15 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
 
     /* drain remaining output after child exits */
     ssize_t n;
-    while ((n = read(pipefd[0], output + used,
-                     output_sz > used + 1 ? output_sz - used - 1 : 0)) > 0) {
-        used += (size_t)n;
-        if (used >= output_sz - 1) break;
-    }
+    do {
+        if (used < output_sz - 1) {
+            n = read(pipefd[0], output + used, output_sz - used - 1);
+            if (n > 0) used += (size_t)n;
+        } else {
+            char discard[4096];
+            n = read(pipefd[0], discard, sizeof(discard));
+        }
+    } while (n > 0);
     if (output_sz) output[used < output_sz ? used : output_sz - 1] = '\0';
     close(pipefd[0]);
 
@@ -145,7 +152,11 @@ int make_dir(const char *path, mode_t mode) {
 
 static void compose_source(char *dst, size_t dst_sz, const char *host,
                             const char *export_path) {
-    snprintf(dst, dst_sz, "%s:%s", host, export_path);
+    /* IPv6 literals need brackets: [addr]:export */
+    if (strchr(host, ':') && host[0] != '[')
+        snprintf(dst, dst_sz, "[%s]:%s", host, export_path);
+    else
+        snprintf(dst, dst_sz, "%s:%s", host, export_path);
 }
 
 static void compose_options(char *dst, size_t dst_sz, const char *version) {
@@ -181,15 +192,25 @@ int mount_export(const char *host, const char *export_path,
         if (opt.dry_run) {
             report_ok("dry-run: would mount %s at %s with NFS v%s", source, mountpoint, ver);
             mr->mounted = 1;
-            if (ver[0] == '4') mr->version = 4; else mr->version = atoi(ver);
+            if (ver[0] == '4') {
+                mr->version = 4;
+                mr->nfs_minor_version = (ver[1] == '.' && ver[2] != '\0') ? atoi(&ver[2]) : 0;
+            } else {
+                mr->version = atoi(ver);
+                mr->nfs_minor_version = 0;
+            }
             return 0;
         }
         int rc = run_command_capture(argv, output, sizeof(output));
         if (rc == 0) {
             mr->mounted = 1;
-            /* parse major version for report */
-            if (ver[0] == '4') mr->version = 4;
-            else mr->version = atoi(ver);
+            if (ver[0] == '4') {
+                mr->version = 4;
+                mr->nfs_minor_version = (ver[1] == '.' && ver[2] != '\0') ? atoi(&ver[2]) : 0;
+            } else {
+                mr->version = atoi(ver);
+                mr->nfs_minor_version = 0;
+            }
             register_mountpoint(mountpoint);
             report_ok("mounted %s at %s with NFS v%s", source, mountpoint, ver);
             return 0;

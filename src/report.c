@@ -25,19 +25,22 @@ void add_event(const char *level, const char *message) {
         events = new_events;
         event_capacity = new_cap;
     }
-    events[event_count].level = strdup(level);
-    events[event_count].message = strdup(message);
+    char *lev = strdup(level);
+    char *msg = strdup(message);
+    if (!lev || !msg) { free(lev); free(msg); return; }
+    events[event_count].level = lev;
+    events[event_count].message = msg;
     events[event_count].export_idx = current_export_idx;
     event_count++;
 }
 
 void add_recommendation(const char *fmt, ...) {
-    char msg[512];
+    char msg[2048];
     va_list ap;
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
-    
+
     for (size_t i = 0; i < recommendation_count; i++) {
         if (strcmp(recommendations[i], msg) == 0) return;
     }
@@ -48,7 +51,9 @@ void add_recommendation(const char *fmt, ...) {
         recommendations = new_recs;
         recommendation_capacity = new_cap;
     }
-    recommendations[recommendation_count++] = strdup(msg);
+    char *dup = strdup(msg);
+    if (!dup) return;
+    recommendations[recommendation_count++] = dup;
 }
 
 static int important_ok_message(const char *msg) {
@@ -81,7 +86,7 @@ static int use_colors(void) {
 void report_ok(const char *fmt, ...) {
     va_list ap;
     summary_ok++;
-    char msg[512];
+    char msg[2048];
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
@@ -95,7 +100,7 @@ void report_ok(const char *fmt, ...) {
 void report_warn(const char *fmt, ...) {
     va_list ap;
     summary_warn++;
-    char msg[512];
+    char msg[2048];
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
@@ -109,7 +114,7 @@ void report_warn(const char *fmt, ...) {
 void report_fail(const char *fmt, ...) {
     va_list ap;
     summary_fail++;
-    char msg[512];
+    char msg[2048];
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
@@ -122,7 +127,7 @@ void report_fail(const char *fmt, ...) {
 
 void report_info(const char *fmt, ...) {
     va_list ap;
-    char msg[512];
+    char msg[2048];
     va_start(ap, fmt);
     vsnprintf(msg, sizeof(msg), fmt, ap);
     va_end(ap);
@@ -158,11 +163,15 @@ static void json_escape(FILE *f, const char *s) {
     }
 }
 
-void enable_json_only_output(void) {
-    if (!opt.json) return;
+void enable_report_only_output(void) {
+    /* Suppress stdout only when a report is written to stdout ("-") */
+    int suppress = 0;
+    if (opt.json && opt.json_path && strcmp(opt.json_path, "-") == 0) suppress = 1;
+    if (opt.html && opt.html_path && strcmp(opt.html_path, "-") == 0) suppress = 1;
+    if (!suppress) return;
     fflush(stdout);
     saved_stdout_fd = dup(STDOUT_FILENO);
-    int devnull = open("/dev/null", O_WRONLY);
+    int devnull = open("/dev/null", O_WRONLY | O_CLOEXEC);
     if (devnull >= 0) {
         dup2(devnull, STDOUT_FILENO);
         close(devnull);
@@ -186,6 +195,7 @@ static void json_write_exports(FILE *f) {
         fprintf(f, "    {\n");
         fprintf(f, "      \"path\": \"");          json_escape(f, r->path); fprintf(f, "\",\n");
         fprintf(f, "      \"nfs_version\": %d,\n", r->nfs_version);
+        fprintf(f, "      \"nfs_minor_version\": %d,\n", r->nfs_minor_version);
         fprintf(f, "      \"tested\": %s,\n",      r->tested ? "true" : "false");
         fprintf(f, "      \"metrics\": {\n");
         fprintf(f, "        \"write_mib_s\": %.2f,\n",  r->write_mib_s);
@@ -226,11 +236,20 @@ void write_json_report(const char *host) {
     if (!opt.json) return;
     FILE *f = NULL;
     if (opt.json_path && strcmp(opt.json_path, "-") != 0) {
-        f = fopen(opt.json_path, "w");
-        if (!f) return;
+        int fd = open(opt.json_path,
+                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0) {
+            fprintf(stderr, "[ERROR] cannot open JSON report %s: %s\n",
+                    opt.json_path, strerror(errno));
+            return;
+        }
+        f = fdopen(fd, "w");
+        if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
-        f = fdopen(dup(saved_stdout_fd), "w");
-        if (!f) return;
+        int dupfd = dup(saved_stdout_fd);
+        if (dupfd < 0) return;
+        f = fdopen(dupfd, "w");
+        if (!f) { close(dupfd); return; }
     } else {
         f = stdout;
     }
@@ -297,11 +316,20 @@ void write_html_report(const char *host) {
     if (!opt.html) return;
     FILE *f = NULL;
     if (opt.html_path && strcmp(opt.html_path, "-") != 0) {
-        f = fopen(opt.html_path, "w");
-        if (!f) return;
+        int fd = open(opt.html_path,
+                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0) {
+            fprintf(stderr, "[ERROR] cannot open HTML report %s: %s\n",
+                    opt.html_path, strerror(errno));
+            return;
+        }
+        f = fdopen(fd, "w");
+        if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
-        f = fdopen(dup(saved_stdout_fd), "w");
-        if (!f) return;
+        int dupfd = dup(saved_stdout_fd);
+        if (dupfd < 0) return;
+        f = fdopen(dupfd, "w");
+        if (!f) { close(dupfd); return; }
     } else {
         f = stdout;
     }
@@ -340,7 +368,10 @@ void write_html_report(const char *host) {
             struct export_report *r = &export_reports[i];
             fprintf(f, "<h3>Export: "); html_escape(f, r->path); fprintf(f, "</h3>\n");
             fprintf(f, "<ul>\n");
-            fprintf(f, "<li>NFS Version: %d</li>\n", r->nfs_version);
+            if (r->nfs_version == 4 && r->nfs_minor_version > 0)
+                fprintf(f, "<li>NFS Version: %d.%d</li>\n", r->nfs_version, r->nfs_minor_version);
+            else
+                fprintf(f, "<li>NFS Version: %d</li>\n", r->nfs_version);
             fprintf(f, "<li>Tested: %s</li>\n", r->tested ? "Yes" : "No");
             fprintf(f, "<li>Write Speed: %.2f MiB/s</li>\n", r->write_mib_s);
             fprintf(f, "<li>Read Speed: %.2f MiB/s</li>\n", r->read_mib_s);

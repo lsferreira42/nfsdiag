@@ -1,1 +1,3 @@
+# TEST-ONLY: these export options are intentionally insecure (wildcard, insecure, no_root_squash).
+# NEVER use this configuration in production.
 /export/current *(rw,sync,no_subtree_check,no_root_squash,insecure)
