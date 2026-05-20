@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.2.0"
+#define NFSDIAG_VERSION "0.3.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>

@@ -1,4 +1,4 @@
-# nfs-doctor (nfsdiag) — v0.2.0
+# nfs-doctor (nfsdiag)
 
 `nfs-doctor` is a small command line tool written in C to help debug NFS servers from the client side.
 
