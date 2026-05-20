@@ -63,6 +63,7 @@ uninstall:
 
 clean:
 	rm -f $(TARGET) $(SRCDIR)/*.o
+	rm -rf build/
 
 distclean: clean
 	rm -rf .cache
