@@ -7,7 +7,7 @@ const char *nfs_version_cascade[] = {"4.2", "4.1", "4", "3", NULL};
 char   active_mountpoints[MAX_MOUNTPOINTS][4096];
 size_t active_mountpoint_count = 0;
 
-/* ---- FD leak prevention (item 4) ---- */
+/* ---- FD leak prevention ---- */
 
 void close_inherited_fds(int keep1, int keep2) {
     DIR *d = opendir("/proc/self/fd");
@@ -22,15 +22,43 @@ void close_inherited_fds(int keep1, int keep2) {
         }
         closedir(d);
     } else {
-        long max_fd = sysconf(_SC_OPEN_MAX);
-        if (max_fd < 0 || max_fd > 4096) max_fd = 4096;
+        /* Use the actual table size, not an arbitrary cap of 4096.
+         * getdtablesize() returns RLIMIT_NOFILE which can be much higher. */
+        long max_fd = getdtablesize();
+        if (max_fd < 0) max_fd = sysconf(_SC_OPEN_MAX);
+        if (max_fd < 0) max_fd = 1024;
         for (int fd = STDERR_FILENO + 1; fd < (int)max_fd; fd++) {
             if (fd != keep1 && fd != keep2) close(fd);
         }
     }
 }
 
-/* ---- command execution with poll() (item 5) ---- */
+/* ---- command execution with poll() ---- */
+
+int resolve_command_path(const char *cmd, char *out, size_t out_sz) {
+    if (!cmd || !cmd[0] || !out || out_sz == 0) return -1;
+    if (strchr(cmd, '/')) {
+        if (access(cmd, X_OK) == 0) {
+            snprintf(out, out_sz, "%s", cmd);
+            return 0;
+        }
+        return -1;
+    }
+
+    static const char *trusted_dirs[] = {
+        "/usr/sbin", "/usr/bin", "/sbin", "/bin", "/usr/local/sbin", "/usr/local/bin"
+    };
+    for (size_t i = 0; i < sizeof(trusted_dirs) / sizeof(trusted_dirs[0]); i++) {
+        char full[4096];
+        if (snprintf(full, sizeof(full), "%s/%s", trusted_dirs[i], cmd) >= (int)sizeof(full))
+            continue;
+        if (access(full, X_OK) == 0) {
+            snprintf(out, out_sz, "%s", full);
+            return 0;
+        }
+    }
+    return -1;
+}
 
 int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     int pipefd[2];
@@ -44,6 +72,13 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     }
 
     if (pid == 0) {
+        char resolved[4096];
+        static char *const safe_env[] = {
+            "PATH=/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/sbin:/usr/local/bin",
+            "LANG=C",
+            "LC_ALL=C",
+            NULL
+        };
         prctl(PR_SET_PDEATHSIG, SIGKILL);
         setpgid(0, 0);
         close(pipefd[0]);
@@ -51,7 +86,9 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
         if (dup2(pipefd[1], STDERR_FILENO) < 0) _exit(127);
         close(pipefd[1]);
         close_inherited_fds(-1, -1);
-        execvp(argv[0], argv);
+        if (resolve_command_path(argv[0], resolved, sizeof(resolved)) != 0)
+            _exit(127);
+        execve(resolved, argv, safe_env);
         _exit(127);
     }
 
@@ -166,7 +203,7 @@ static void compose_options(char *dst, size_t dst_sz, const char *version) {
         snprintf(dst, dst_sz, "vers=%s", version);
 }
 
-/* ---- mount with NFSv4.2/4.1/4/3 cascade (item 11) ---- */
+/* ---- mount with NFSv4.2/4.1/4/3 cascade ---- */
 
 int mount_export(const char *host, const char *export_path,
                  const char *mountpoint, struct mount_result *mr)

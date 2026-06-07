@@ -1,5 +1,5 @@
 Name:           nfsdiag
-Version:        0.4.1
+Version:        0.6.0
 Release:        1%{?dist}
 Summary:        NFS diagnostic tool
 
@@ -11,8 +11,8 @@ Requires:       libtirpc
 Suggests:       nfs-utils
 
 %description
-nfs-doctor (nfsdiag) is a command-line NFS diagnostic tool. It tests NFS
-servers from the client side, identifying network, RPC, protocol, permission,
+nfsdiag is a command-line NFS diagnostic tool. It tests NFS servers from the
+client side, identifying network, RPC, protocol, permission, authentication,
 and performance issues across multiple exports.
 
 %install
@@ -23,5 +23,7 @@ install -m 755 %{srcdir}/nfsdiag %{buildroot}/usr/bin/nfsdiag
 /usr/bin/nfsdiag
 
 %changelog
-* Wed May 20 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.2.0-1
-- Initial release
+* Sun Jun 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.6.0-1
+- Fixed delegation/server-info detection, per-export status, Prometheus output, and fs-test timeouts
+* Sun Jun 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.5.0-1
+- Hardened diagnostics, richer reports, completions, man page, and CI checks

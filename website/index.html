@@ -67,6 +67,7 @@
           <a href="#checks" class="nav__hide-sm">checks</a>
           <a href="#usage">usage</a>
           <a href="docs.html">docs</a>
+          <a href="author.html" class="nav__hide-sm">author</a>
           <span class="nav__sep nav__hide-sm">│</span>
           <button
             class="nav__btn"
@@ -115,12 +116,17 @@
         </p>
         <p>
           One IP, one command. Compact text by default. JSON and standalone
-          HTML when you need it. Safe by default — dry-run, rate limiting,
-          mount namespace, <code>O_NOFOLLOW</code> everywhere.
+          HTML when you need it. Safe by default — validated inputs, trusted
+          helper execution, automatic mount namespace, <code>O_NOFOLLOW</code>
+          reports, and opt-in dangerous probes.
         </p>
         <p>
-          Written in C99 against <code>libtirpc</code>. ~3,000 lines. MIT.
-          Current version: <strong>0.4.1</strong>.
+          Written in C99 against <code>libtirpc</code>. MIT.
+          Current version: <strong>0.6.0</strong>.
+        </p>
+        <p class="byline">
+          Created by Leandro Ferreira — see more on the
+          <a href="author.html">author</a> page.
         </p>
 
         <!-- ── terminal mock ───────────────────────────────────────── -->
@@ -133,7 +139,7 @@
             <div style="width: 50px"></div>
           </div>
 <pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag 192.168.1.10
-nfsdiag 0.4.1: 192.168.1.10
+nfsdiag 0.6.0: 192.168.1.10
 <span class="ok">[OK]</span> rpcbind on tcp/111
 <span class="ok">[OK]</span> nfs on tcp/2049
 <span class="ok">[OK]</span> 1 export(s) discovered
@@ -191,11 +197,20 @@ cd nfsdiag &amp;&amp; make
 sudo make install</code></pre>
         </div>
 
-        <p class="lede" style="margin-top: 20px;">
-          Pre-built packages (<code class="inline">.deb</code>, <code class="inline">.rpm</code>,
-          <code class="inline">.apk</code>) are available on the
+        <div class="cols" style="margin-top: 20px;">
+          <pre><code class="block"><span class="code__d"># OCI image — no build required</span>
+docker run --rm --privileged \
+  ghcr.io/lsferreira42/nfsdiag \
+  192.168.1.10</code></pre>
+        </div>
+
+        <p class="lede" style="margin-top: 8px;">
+          Pre-built binaries (amd64 &amp; arm64), <code class="inline">.deb</code>,
+          <code class="inline">.rpm</code>, and <code class="inline">.apk</code> on the
           <a href="https://github.com/lsferreira42/nfsdiag/releases/latest" target="_blank" rel="noopener">latest GitHub release ↗</a>.
-          To build from source see <a href="docs.html#packaging">packaging</a>.
+          Releases also include checksums, SBOM, provenance, and an OCI image.
+          Packaging templates for Homebrew, AUR, Nix, Docker, DEB, RPM and APK
+          live under <code class="inline">packaging/</code>.
         </p>
       </section>
 
@@ -288,10 +303,24 @@ sudo make install</code></pre>
               </td>
             </tr>
             <tr>
+              <th>filenames</th>
+              <td>
+                255-byte names · spaces · colons · UTF-8 multibyte · per-rejection errno
+              </td>
+            </tr>
+            <tr>
+              <th>delegation</th>
+              <td>
+                NFSv4 delegation activity via
+                <code class="inline">/proc/self/mountstats</code>
+                (DELEGRETURN operations)
+              </td>
+            </tr>
+            <tr>
               <th>report</th>
               <td>
-                compact text on TTY · hierarchical JSON · standalone HTML with
-                inline CSS
+                tagged text · UTF-8 table · NDJSON · Prometheus · JSON · HTML ·
+                evidence bundle · stable check IDs · remediation text
               </td>
             </tr>
           </tbody>
@@ -345,6 +374,33 @@ sudo make install</code></pre>
             <p class="recipe__desc">shareable HTML for a support ticket</p>
 <pre><code class="block">sudo nfsdiag --html=report.html 192.168.1.10</code></pre>
           </div>
+          <div>
+            <p class="recipe__desc">continuous monitoring — re-run every 60 s</p>
+<pre><code class="block">sudo nfsdiag --watch 60 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">stream failures with jq</p>
+<pre><code class="block">sudo nfsdiag --output-format=ndjson \
+  192.168.1.10 | jq 'select(.level=="fail")'</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">safe preset — read-only diagnostics</p>
+<pre><code class="block">sudo nfsdiag --profile safe 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">evidence bundle for tickets</p>
+<pre><code class="block">sudo nfsdiag --output-dir ./nfsdiag-report 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">compare before / after reports</p>
+<pre><code class="block">nfsdiag diff before.json after.json</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">audit a fleet from a hosts file</p>
+<pre><code class="block">sudo nfsdiag \
+  --hosts-file /etc/nfs-servers.txt \
+  --json=audit.json</code></pre>
+          </div>
         </div>
 
         <p class="lede" style="margin-top: 28px;">
@@ -377,8 +433,9 @@ sudo make install</code></pre>
 
         <p class="lede">
           The full reference covers every CLI flag, all 14 Docker test fixtures,
-          JSON/HTML output formats, packaging (deb/rpm/apk), security notes,
-          architecture overview, limitations, and the changelog.
+          all output formats (text, table, NDJSON, Prometheus, JSON, HTML),
+          evidence bundles, report diffing, packaging (deb/rpm/apk/OCI/Homebrew/AUR/Nix),
+          security notes, architecture overview, limitations, and the changelog.
         </p>
 
         <a href="docs.html" class="cta-link">→ open full documentation</a>
@@ -386,7 +443,7 @@ sudo make install</code></pre>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.4.1</strong></span>
+      <span>nfsdiag <strong>v0.6.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>
@@ -397,6 +454,8 @@ sudo make install</code></pre>
       <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
       <span class="foot__sep">·</span>
       <a href="docs.html">docs</a>
+      <span class="foot__sep">·</span>
+      <a href="author.html">author</a>
       <span class="foot__sep">·</span>
       <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
       <span class="foot__sep">·</span>

@@ -5,6 +5,65 @@ on:
     tags: ['v*']
 
 jobs:
+  # ---- linux-amd64 binary ----
+  binary-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libtirpc-dev
+
+      - name: Build linux-amd64
+        run: |
+          make "CFLAGS=-O2 -Wall -Wextra -Werror" rebuild
+          make sbom
+          mkdir -p dist
+          cp nfsdiag dist/nfsdiag-linux-amd64
+          sha256sum dist/nfsdiag-linux-amd64 > dist/nfsdiag-linux-amd64.sha256
+          cp build/*.spdx.json dist/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-amd64
+          path: dist/
+
+  # ---- linux-arm64 cross-compiled binary ----
+  binary-arm64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cross-compile toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu pkg-config
+
+      - name: Install libtirpc (arm64) via multiarch
+        run: |
+          sudo dpkg --add-architecture arm64
+          sudo apt-get update
+          sudo apt-get install -y libtirpc-dev:arm64
+
+      - name: Build linux-arm64
+        run: |
+          make "CC=aarch64-linux-gnu-gcc" \
+               "CFLAGS=-O2 -Wall -Wextra -Werror" \
+               "TIRPC_CFLAGS=-I/usr/include/tirpc" \
+               "TIRPC_LIBS=-ltirpc" \
+               rebuild
+          mkdir -p dist
+          cp nfsdiag dist/nfsdiag-linux-arm64
+          sha256sum dist/nfsdiag-linux-arm64 > dist/nfsdiag-linux-arm64.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-arm64
+          path: dist/
+
+  # ---- DEB package ----
   build-deb:
     runs-on: ubuntu-latest
     steps:
@@ -18,15 +77,19 @@ jobs:
       - name: Build DEB
         run: make deb
 
+      - name: Checksum
+        run: sha256sum build/*.deb > build/checksums-deb.sha256
+
       - uses: actions/upload-artifact@v4
         with:
           name: deb
           path: build/*.deb
 
+  # ---- RPM package ----
   build-rpm:
     runs-on: ubuntu-latest
     container:
-      image: fedora:40
+      image: fedora:41
     steps:
       - uses: actions/checkout@v4
 
@@ -36,11 +99,15 @@ jobs:
       - name: Build RPM
         run: make rpm
 
+      - name: Checksum
+        run: sha256sum build/*.rpm > build/checksums-rpm.sha256
+
       - uses: actions/upload-artifact@v4
         with:
           name: rpm
           path: build/*.rpm
 
+  # ---- Alpine APK package ----
   build-apk:
     runs-on: ubuntu-latest
     steps:
@@ -54,8 +121,43 @@ jobs:
           name: apk
           path: build/*.apk
 
+  # ---- OCI image published to ghcr.io ----
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract version tag
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/lsferreira42/nfsdiag
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: packaging/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+
+  # ---- GitHub Release ----
   release:
-    needs: [build-deb, build-rpm, build-apk]
+    needs: [binary-amd64, binary-arm64, build-deb, build-rpm, build-apk]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -63,10 +165,33 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-          path: build
+          path: dist
+
+      - name: Generate combined checksums
+        run: |
+          cd dist
+          sha256sum nfsdiag-linux-amd64 nfsdiag-linux-arm64 *.deb *.rpm *.apk 2>/dev/null | tee SHA256SUMS || true
+
+      - name: Generate provenance
+        run: |
+          {
+            echo "repository=${GITHUB_REPOSITORY}"
+            echo "ref=${GITHUB_REF}"
+            echo "sha=${GITHUB_SHA}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "actor=${GITHUB_ACTOR}"
+          } > dist/PROVENANCE.txt
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          files: build/*
+          files: |
+            dist/nfsdiag-linux-amd64
+            dist/nfsdiag-linux-arm64
+            dist/*.deb
+            dist/*.rpm
+            dist/*.apk
+            dist/*.spdx.json
+            dist/SHA256SUMS
+            dist/PROVENANCE.txt
           generate_release_notes: true

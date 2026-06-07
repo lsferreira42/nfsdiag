@@ -3,20 +3,46 @@
 /* ---- dependency checks ---- */
 
 static int command_exists(const char *cmd) {
-    if (strchr(cmd, '/'))
-        return access(cmd, X_OK) == 0;
-    const char *path_env = getenv("PATH");
-    if (!path_env || !path_env[0]) path_env = "/usr/bin:/bin:/usr/sbin:/sbin";
-    char path_copy[4096];
-    snprintf(path_copy, sizeof(path_copy), "%s", path_env);
-    char *save = NULL;
-    for (char *dir = strtok_r(path_copy, ":", &save); dir; dir = strtok_r(NULL, ":", &save)) {
-        char full[4096];
-        if (snprintf(full, sizeof(full), "%s/%s", dir, cmd) >= (int)sizeof(full)) continue;
-        struct stat st;
-        if (stat(full, &st) == 0 && (st.st_mode & S_IXUSR)) return 1;
+    char resolved[4096];
+    return resolve_command_path(cmd, resolved, sizeof(resolved)) == 0;
+}
+
+static const char *detected_distro_family(void) {
+    static char family[32];
+    if (family[0]) return family;
+    FILE *f = fopen("/etc/os-release", "r");
+    if (!f) {
+        snprintf(family, sizeof(family), "unknown");
+        return family;
     }
-    return 0;
+    char line[256];
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "ID=", 3) == 0 || strncmp(line, "ID_LIKE=", 8) == 0) {
+            if (strstr(line, "debian") || strstr(line, "ubuntu")) {
+                snprintf(family, sizeof(family), "debian");
+                break;
+            }
+            if (strstr(line, "fedora") || strstr(line, "rhel") || strstr(line, "centos")) {
+                snprintf(family, sizeof(family), "rhel");
+                break;
+            }
+            if (strstr(line, "alpine")) {
+                snprintf(family, sizeof(family), "alpine");
+                break;
+            }
+        }
+    }
+    fclose(f);
+    if (!family[0]) snprintf(family, sizeof(family), "unknown");
+    return family;
+}
+
+static const char *nfs_client_package_hint(void) {
+    const char *family = detected_distro_family();
+    if (strcmp(family, "debian") == 0) return "Install nfs-common.";
+    if (strcmp(family, "rhel") == 0) return "Install nfs-utils.";
+    if (strcmp(family, "alpine") == 0) return "Install nfs-utils.";
+    return "Install your distribution's NFS client package.";
 }
 
 int check_dependencies(void) {
@@ -24,7 +50,7 @@ int check_dependencies(void) {
 
     if (!opt.no_mount) {
         if (!command_exists("mount.nfs") && !command_exists("mount")) {
-            fprintf(stderr, "[FATAL] mount/mount.nfs not found. Install nfs-common (Debian/Ubuntu) or nfs-utils (Fedora/RHEL).\n");
+            fprintf(stderr, "[FATAL] mount/mount.nfs not found. %s\n", nfs_client_package_hint());
             ok = 0;
         }
         if (!command_exists("umount")) {
@@ -41,7 +67,7 @@ int check_dependencies(void) {
     return ok;
 }
 
-/* ---- client daemon checks (item 8) ---- */
+/* ---- client daemon checks ---- */
 
 void check_client_daemons(void) {
     if (opt.verbose) printf("\n[+] Client daemon checks\n");
@@ -84,13 +110,31 @@ void check_client_daemons(void) {
     }
 }
 
-/* ---- Kerberos detection (item 10) ---- */
+/* ---- Kerberos detection ---- */
 
 void check_kerberos(void) {
     if (!opt.krb5) return;
     if (opt.verbose) printf("\n[+] Kerberos detection\n");
 
     char output[CMD_OUTPUT_LIMIT];
+    if (access("/etc/krb5.conf", R_OK) == 0)
+        report_ok("Kerberos config found at /etc/krb5.conf");
+    else
+        report_warn("Kerberos config /etc/krb5.conf is not readable: %s", strerror(errno));
+
+    if (access("/etc/krb5.keytab", R_OK) == 0)
+        report_info("Kerberos keytab /etc/krb5.keytab is readable");
+    else
+        report_info("Kerberos keytab /etc/krb5.keytab not readable or absent: %s", strerror(errno));
+
+    if (command_exists("gssproxy")) {
+        char *gssproxy_argv[] = {"systemctl", "is-active", "--quiet", "gssproxy.service", NULL};
+        if (command_exists("systemctl") && run_command_capture(gssproxy_argv, output, sizeof(output)) == 0)
+            report_ok("gssproxy.service is active");
+        else
+            report_info("gssproxy binary exists; service state not active or unavailable");
+    }
+
     char *klist_argv[] = {"klist", "-s", NULL};
     int rc = run_command_capture(klist_argv, output, sizeof(output));
     if (rc == 0) {
@@ -105,9 +149,13 @@ void check_kerberos(void) {
         report_fail("no valid Kerberos ticket found (klist -s failed)");
         add_recommendation("No Kerberos ticket: run kinit to obtain a ticket before testing with --krb5.");
     }
+
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) == 0)
+        report_info("client realtime clock available for Kerberos skew checks: %ld", (long)ts.tv_sec);
 }
 
-/* ---- RPC stats from /proc/net/rpc/nfs (item 7) ---- */
+/* ---- RPC stats from /proc/net/rpc/nfs ---- */
 
 int capture_rpc_stats(struct rpc_stats *out) {
     memset(out, 0, sizeof(*out));
@@ -162,7 +210,7 @@ void report_rpc_stats_diff(const struct rpc_stats *before, const struct rpc_stat
     }
 }
 
-/* ---- /proc/self/mountstats parsing (item 12) ---- */
+/* ---- /proc/self/mountstats parsing ---- */
 
 void parse_mountstats(const char *mountpoint) {
     FILE *f = fopen("/proc/self/mountstats", "r");
@@ -252,7 +300,7 @@ void parse_mountstats(const char *mountpoint) {
     if (!found) report_info("mountstats entry not found for %s", mountpoint);
 }
 
-/* ---- mount options verification via /proc/self/mountinfo (item 13) ---- */
+/* ---- mount options verification via /proc/self/mountinfo ---- */
 
 void verify_mount_options(const char *mountpoint, struct export_report *report) {
     FILE *f = fopen("/proc/self/mountinfo", "r");
@@ -325,4 +373,38 @@ void collect_system_info(struct system_info *si) {
         snprintf(si->hostname, sizeof(si->hostname), "%.255s", u.nodename);
         snprintf(si->arch, sizeof(si->arch), "%.63s", u.machine);
     }
+}
+
+/* ---- /proc/fs/nfsfs/servers check ---- */
+
+void check_nfsfs_servers(const char *mountpoint) {
+    (void)mountpoint; /* used for context only */
+
+    FILE *f = fopen("/proc/fs/nfsfs/servers", "r");
+    if (!f) {
+        /* Not all kernels expose this; silently skip */
+        return;
+    }
+
+    char line[512];
+    int header_skipped = 0;
+    while (fgets(line, sizeof(line), f)) {
+        /* Skip the header line ("NV SERVER PORT USE HOSTNAME") */
+        if (!header_skipped) { header_skipped = 1; continue; }
+
+        /* Kernel format (fs/nfs/client.c nfs_server_list_show):
+         *   NV SERVER   PORT USE HOSTNAME
+         *   v4 7f000001  801   1 127.0.0.1
+         * Fields: protocol version, hex address, hex port, usecount, hostname.
+         * (This file does not expose lease time.) */
+        char nv[8] = {0}, addr[64] = {0}, port[16] = {0}, hostname[128] = {0};
+        int use = 0;
+
+        int n = sscanf(line, "%7s %63s %15s %d %127s", nv, addr, port, &use, hostname);
+        if (n < 5) continue;
+
+        report_info("NFS server %s: protocol=%s active_mounts=%d",
+                    hostname[0] ? hostname : "(unknown)", nv, use);
+    }
+    fclose(f);
 }

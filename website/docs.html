@@ -54,6 +54,7 @@
           <a href="#fixtures" class="nav__hide-sm">fixtures</a>
           <a href="#packaging" class="nav__hide-sm">packaging</a>
           <a href="#changelog" class="nav__hide-sm">changelog</a>
+          <a href="author.html" class="nav__hide-sm">author</a>
           <span class="nav__sep nav__hide-sm">│</span>
           <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
             <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -78,7 +79,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.4.1 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.6.0 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -207,7 +208,55 @@
               <td class="flag">--mount-namespace</td>
               <td class="arg">—</td>
               <td class="def">—</td>
-              <td>Run mounts inside a private mount namespace so they are invisible to other processes. Requires root or <code class="inline">CAP_SYS_ADMIN</code>.</td>
+              <td>Run mounts inside a private mount namespace so they are invisible to other processes. Root runs attempt this automatically unless disabled.</td>
+            </tr>
+            <tr>
+              <td class="flag">--no-mount-namespace</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Disable automatic private mount namespace use for live mount diagnostics.</td>
+            </tr>
+            <tr>
+              <td class="flag">--dangerous-fs-tests</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Enable symlink, hardlink, FIFO, and device-node probes. These are intentionally opt-in for production exports.</td>
+            </tr>
+            <tr>
+              <td class="flag">--allow-risky-mount-options</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Permit risky mount options such as <code class="inline">exec</code>, <code class="inline">suid</code>, and <code class="inline">dev</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--profile</td>
+              <td class="arg">NAME</td>
+              <td class="def">—</td>
+              <td>Apply a preset: <code class="inline">quick</code>, <code class="inline">safe</code>, <code class="inline">full</code>, <code class="inline">performance</code>, <code class="inline">security</code>, or <code class="inline">readonly</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--hosts-file</td>
+              <td class="arg">FILE</td>
+              <td class="def">—</td>
+              <td>Read one host per line from FILE and run diagnostics for each. Lines starting with <code class="inline">#</code> are comments. Respects <code class="inline">--delay-ms</code> between hosts.</td>
+            </tr>
+            <tr>
+              <td class="flag">--watch</td>
+              <td class="arg">SEC</td>
+              <td class="def">—</td>
+              <td>Re-run diagnostics every SEC seconds until interrupted with Ctrl-C. Clears terminal between iterations. All mounts are cleaned up on SIGINT.</td>
+            </tr>
+            <tr>
+              <td class="flag">--on-fail-exec</td>
+              <td class="arg">SCRIPT</td>
+              <td class="def">—</td>
+              <td>Execute SCRIPT through a resolved trusted path with a minimal environment (never <code class="inline">sh -c</code>) when any test fails. Receives <code class="inline">NFSDIAG_HOST</code>, <code class="inline">NFSDIAG_LEVEL</code>, <code class="inline">NFSDIAG_FAIL_COUNT</code>, <code class="inline">NFSDIAG_WARN_COUNT</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--config</td>
+              <td class="arg">FILE</td>
+              <td class="def">—</td>
+              <td>Load options from FILE (key=value, one per line) before parsing remaining CLI arguments. CLI flags override the config file.</td>
             </tr>
           </tbody>
         </table>
@@ -298,6 +347,18 @@
               <td class="arg">PATH</td>
               <td class="def">—</td>
               <td>Emit a standalone HTML report with inline CSS. Use <code class="inline">-</code> for stdout. Suitable for sharing in support tickets or storing as artefacts.</td>
+            </tr>
+            <tr>
+              <td class="flag">--output-format</td>
+              <td class="arg">FMT</td>
+              <td class="def">text</td>
+              <td>Terminal output format. <code class="inline">text</code>: tagged lines (default). <code class="inline">table</code>: UTF-8 box-drawing summary table. <code class="inline">ndjson</code>: streaming newline-delimited JSON per event. <code class="inline">prometheus</code>: OpenMetrics text at end of run.</td>
+            </tr>
+            <tr>
+              <td class="flag">--output-dir</td>
+              <td class="arg">DIR</td>
+              <td class="def">—</td>
+              <td>Write a bundle containing JSON, HTML, evidence text, and SHA256 checksums.</td>
             </tr>
             <tr>
               <td class="flag">--keep-temp</td>
@@ -464,12 +525,38 @@
               </td>
             </tr>
             <tr>
+              <th>long filenames</th>
+              <td>
+                Creates and accesses files with 255-byte names, names
+                containing spaces, colons, at-signs, and UTF-8 multibyte
+                sequences. Reports which the server rejects and with which
+                <code class="inline">errno</code>. Essential for Windows/CIFS
+                interop and legacy VFS kernels.
+              </td>
+            </tr>
+            <tr>
+              <th>delegations</th>
+              <td>
+                After mounting, opens and reads a probe file, then parses the
+                per-mount op table in <code class="inline">/proc/self/mountstats</code>
+                for DELEGRETURN activity. Reports whether NFSv4 delegations were
+                used, or info if none were observed.
+              </td>
+            </tr>
+            <tr>
+              <th>server info</th>
+              <td>
+                Reads <code class="inline">/proc/fs/nfsfs/servers</code> for the
+                NFS protocol version, active mount count, and server hostname.
+              </td>
+            </tr>
+            <tr>
               <th>reporting</th>
               <td>
-                Compact coloured text on TTY (warnings/failures always shown;
-                verbose mode shows all). Hierarchical JSON with per-export
-                events and NFS version metadata. Standalone HTML with inline
-                CSS, no external dependencies.
+                Tagged text, UTF-8 box-drawing table, streaming NDJSON, and
+                Prometheus/OpenMetrics output. Hierarchical JSON with per-export
+                events. Standalone HTML with Content-Security-Policy header
+                and all server-supplied strings HTML-escaped.
               </td>
             </tr>
           </tbody>
@@ -582,6 +669,43 @@
             <p class="recipe__desc">keep temp workspace for post-mortem inspection</p>
 <pre><code class="block">sudo nfsdiag --keep-temp 192.168.1.10</code></pre>
           </div>
+
+          <div>
+            <p class="recipe__desc">continuous monitoring — re-run every 60 s</p>
+<pre><code class="block">sudo nfsdiag --watch 60 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">audit a fleet of servers from a file</p>
+<pre><code class="block">sudo nfsdiag \
+  --hosts-file /etc/nfs-servers.txt \
+  --delay-ms 200 \
+  --json=audit.json</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">stream events — filter only failures with jq</p>
+<pre><code class="block">sudo nfsdiag --output-format=ndjson 192.168.1.10 \
+  | jq 'select(.level=="fail")'</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">Prometheus probe output</p>
+<pre><code class="block">sudo nfsdiag --output-format=prometheus 192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">alert via PagerDuty / Slack on failure</p>
+<pre><code class="block">sudo nfsdiag \
+  --on-fail-exec /usr/local/bin/alert.sh \
+  192.168.1.10</code></pre>
+          </div>
+
+          <div>
+            <p class="recipe__desc">run from a container — no install required</p>
+<pre><code class="block">docker run --rm --privileged \
+  ghcr.io/lsferreira42/nfsdiag 192.168.1.10</code></pre>
+          </div>
         </div>
       </section>
 
@@ -603,17 +727,48 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.4.1: 192.168.0.21
+<pre><code class="block">nfsdiag 0.6.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
+
+        <p class="subsec">Table</p>
+        <p class="lede">
+          UTF-8 box-drawing summary table printed at end of run. One row per
+          export with columns: path, NFS version, write MiB/s, read MiB/s,
+          metadata p95 ms, lock status, overall status.
+        </p>
+<pre><code class="block">sudo nfsdiag --output-format=table 192.168.1.10</code></pre>
+
+        <p class="subsec">NDJSON (streaming)</p>
+        <p class="lede">
+          One JSON object per event line, emitted as events are generated.
+          Enables real-time filtering with <code class="inline">jq</code> and
+          integration with log pipelines (Loki, Vector, etc.). Events include
+          <code class="inline">check_id</code>, <code class="inline">category</code>,
+          severity and remediation text.
+        </p>
+<pre><code class="block">sudo nfsdiag --output-format=ndjson 192.168.1.10 \
+  | jq 'select(.level=="fail")'</code></pre>
+
+        <p class="subsec">Prometheus / OpenMetrics</p>
+        <p class="lede">
+          Emitted at end of run. Per-export metrics: write/read throughput,
+          metadata latency p95, lock result, delegation state, and per-check
+          pass/fail gauge. Suitable for blackbox_exporter or batch-job scraping.
+        </p>
+<pre><code class="block">sudo nfsdiag --output-format=prometheus 192.168.1.10</code></pre>
 
         <p class="subsec">JSON</p>
         <p class="lede">
           Hierarchical structure: top-level metadata, per-export events (linked
           by <code class="inline">export_idx</code>), per-export NFS version,
-          and a recommendations array. The NFS minor version (4.1, 4.2) is
-          tracked inside each export record.
+          and a recommendations array. The schema includes
+          <code class="inline">schema_version</code>,
+          <code class="inline">timestamp_iso8601</code>,
+          <code class="inline">duration_sec</code>, stable
+          <code class="inline">check_id</code> values, event categories, severity,
+          and remediation text.
         </p>
 <pre><code class="block"><span class="code__d"># JSON to file — diagnostic text still on stdout</span>
 nfsdiag --json=report.json 192.168.1.10
@@ -625,10 +780,21 @@ nfsdiag --json=- 192.168.1.10
 <span class="code__d"># pipe to jq</span>
 nfsdiag --json 192.168.1.10 | jq '.exports[0].nfs_version'</code></pre>
 
+        <p class="subsec">Evidence bundle</p>
+        <p class="lede">
+          <code class="inline">--output-dir</code> writes JSON, HTML, evidence
+          text and SHA256 checksums in one directory. Two JSON reports can be
+          compared with <code class="inline">nfsdiag diff</code>.
+        </p>
+<pre><code class="block">sudo nfsdiag --output-dir ./nfsdiag-report 192.168.1.10
+nfsdiag diff before.json after.json</code></pre>
+
         <p class="subsec">HTML</p>
         <p class="lede">
           Standalone report with inline CSS — no external resources. Open in any
-          browser. Safe to email or attach to issue trackers.
+          browser. Safe to email or attach to issue trackers. Includes a
+          Content-Security-Policy header; all server-supplied strings are
+          HTML-escaped.
         </p>
 <pre><code class="block"><span class="code__d"># HTML to file</span>
 sudo nfsdiag --html=report.html 192.168.1.10
@@ -744,11 +910,26 @@ make apk       <span class="code__d"># Alpine .apk (requires Docker)</span>
 make packages  <span class="code__d"># all three formats at once</span></code></pre>
 
         <p class="lede">Built packages are placed in <code class="inline">build/</code>.</p>
+        <p class="lede">
+          Packaging templates live under <code class="inline">packaging/</code>:
+          OCI Dockerfile, Homebrew formula, AUR PKGBUILD, and Nix flake.
+          Release artifacts include checksums, SBOM and provenance metadata.
+        </p>
+
+        <p class="subsec">OCI image</p>
+        <p class="lede">
+          A multi-stage Docker image is published to
+          <code class="inline">ghcr.io/lsferreira42/nfsdiag</code> on every
+          release as <code class="inline">:latest</code> and
+          <code class="inline">:vX.Y.Z</code>.
+        </p>
+<pre><code class="block">docker run --rm --privileged \
+  ghcr.io/lsferreira42/nfsdiag 192.168.1.10</code></pre>
 
         <p class="subsec">Install options</p>
-<pre><code class="block">sudo make install             <span class="code__d"># install to /usr/local</span>
-make PREFIX=/opt install      <span class="code__d"># install to a custom prefix</span>
-sudo make uninstall           <span class="code__d"># remove installed files</span></code></pre>
+<pre><code class="block">sudo make install                  <span class="code__d"># binary, man page and shell completions to /usr/local</span>
+make PREFIX=/opt install           <span class="code__d"># custom prefix</span>
+sudo make uninstall                <span class="code__d"># remove all installed files</span></code></pre>
 
         <p class="subsec">Version bumping</p>
         <p class="lede">
@@ -756,9 +937,9 @@ sudo make uninstall           <span class="code__d"># remove installed files</sp
           atomically into <code class="inline">src/nfsdiag.h</code> and all packaging
           files by the bump targets.
         </p>
-<pre><code class="block">make bump-version-bugfix   <span class="code__d"># 0.4.1 → 0.4.2</span>
-make bump-version-minor    <span class="code__d"># 0.4.1 → 0.5.0</span>
-make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code></pre>
+<pre><code class="block">make bump-version-bugfix   <span class="code__d"># 0.5.0 → 0.5.1</span>
+make bump-version-minor    <span class="code__d"># 0.5.0 → 0.6.0</span>
+make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code></pre>
 
         <p class="subsec">GitHub release</p>
         <p class="lede">
@@ -816,20 +997,73 @@ make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code>
             <tr>
               <th>processes</th>
               <td>
-                Child processes use <code class="inline">execvp</code> with an
-                <code class="inline">argv[]</code> array — no
-                <code class="inline">sh -c</code> with dynamic strings.
+                Child processes resolve helper commands from trusted system
+                directories and execute them with <code class="inline">execve</code>,
+                an <code class="inline">argv[]</code> array, and a minimal
+                environment — no <code class="inline">sh -c</code> with dynamic strings.
                 <code class="inline">prctl(PR_SET_PDEATHSIG)</code> +
                 <code class="inline">setpgid()</code> prevent orphan children.
                 Inherited file descriptors closed in child processes.
               </td>
             </tr>
             <tr>
+              <th>input validation</th>
+              <td>
+                Hostnames, export paths, and mount options are validated before
+                network or mount activity. Risky mount options require
+                <code class="inline">--allow-risky-mount-options</code>.
+                Symlink, hardlink, FIFO, and device-node probes require
+                <code class="inline">--dangerous-fs-tests</code>.
+              </td>
+            </tr>
+            <tr>
               <th>XDR / RPC</th>
               <td>
                 XDR string sizes bounded: export paths at 4096 bytes, group
-                names at 256 bytes. Prevents memory exhaustion from malicious
-                servers advertising oversized strings.
+                names at 256 bytes. XDR linked-list recursion capped at depth
+                32 (<code class="inline">MAX_XDR_DEPTH</code>) to prevent stack
+                overflow from malicious server responses. All XDR strings are
+                sanitised for control characters before display or HTML inclusion.
+              </td>
+            </tr>
+            <tr>
+              <th>random paths</th>
+              <td>
+                Test file paths include cryptographically random bytes from
+                <code class="inline">getrandom()</code>. Prevents an attacker
+                in a shared export from pre-creating a symlink at the predicted
+                test path to subvert I/O or permission tests.
+              </td>
+            </tr>
+            <tr>
+              <th>capabilities</th>
+              <td>
+                Child processes that simulate UID/GID clear all ambient
+                capabilities via
+                <code class="inline">prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL)</code>
+                before calling <code class="inline">setuid()</code>, ensuring
+                elevated capabilities are not silently retained.
+              </td>
+            </tr>
+            <tr>
+              <th>TMPDIR</th>
+              <td>
+                The <code class="inline">TMPDIR</code> environment variable is
+                validated before use. The created workspace is checked with
+                <code class="inline">lstat()</code>, must be owned by the current
+                user, and cleanup refuses paths outside the workspace prefix.
+              </td>
+            </tr>
+            <tr>
+              <th>HTML output</th>
+              <td>
+                HTML reports include a
+                <code class="inline">Content-Security-Policy</code> meta header.
+                <code class="inline">opt.host</code> and all server-supplied
+                strings (export paths, group names) are passed through
+                <code class="inline">html_escape()</code> at every insertion
+                point, preventing stored XSS if the report is opened in a
+                browser.
               </td>
             </tr>
             <tr>
@@ -940,7 +1174,9 @@ make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code>
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.4.1"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.6.0"</td></tr>
+            <tr><td class="flag">MAX_XDR_DEPTH</td><td colspan="3">32</td></tr>
+            <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
             <tr><td class="flag">RPCBIND_PORT</td><td colspan="3">111</td></tr>
             <tr><td class="flag">NFS_PORT</td><td colspan="3">2049</td></tr>
             <tr><td class="flag">MAX_EXPORTS</td><td colspan="3">512</td></tr>
@@ -1042,6 +1278,49 @@ make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code>
           </svg>
         </h2>
 
+        <p class="subsec">v0.6.0</p>
+        <p class="lede">
+          Correctness release: fixes to delegation and server-info detection,
+          per-export status, Prometheus output, and filesystem-test timeouts.
+        </p>
+        <ul class="fixtures">
+          <li>NFSv4 delegation detection rewritten to read DELEGRETURN activity from <code class="inline">/proc/self/mountstats</code> (the previous <code class="inline">/proc/fs/nfsfs/volumes</code> match never fired)</li>
+          <li><code class="inline">/proc/fs/nfsfs/servers</code> parsing fixed to the real <code class="inline">NV SERVER PORT USE HOSTNAME</code> format (reports protocol version, active mounts, hostname; the old lease-time field does not exist in that file)</li>
+          <li>Per-export status in the HTML and table reports now reflects each export's own events instead of the global pass/fail counters</li>
+          <li>Prometheus output emits each <code class="inline"># HELP</code>/<code class="inline"># TYPE</code> once, fixing invalid duplicate lines when more than one export is tested</li>
+          <li>All filesystem probes (special files, xattrs, copy_file_range, fallocate/O_DIRECT, close-to-open, long filenames, delegation) now run under a <code class="inline">--fs-timeout</code> guard</li>
+          <li><code class="inline">--hosts-file</code> now warns when a positional host is also supplied and ignored</li>
+          <li><code class="inline">--export</code> path allocation failure is handled instead of silently using a NULL path</li>
+          <li>Watch-mode banner text corrected</li>
+        </ul>
+
+        <p class="subsec">v0.5.0</p>
+        <p class="lede">
+          Major feature release: new output modes, multi-host support, watch mode,
+          on-fail hooks, config file, new filesystem checks, OCI image, shell
+          completions, man page, and security hardening.
+        </p>
+        <ul class="fixtures">
+          <li><code class="inline">--output-format=table/ndjson/prometheus</code> — three new terminal output modes</li>
+          <li><code class="inline">--watch SEC</code> — continuous monitoring mode with clean SIGINT handling</li>
+          <li><code class="inline">--hosts-file FILE</code> — batch diagnostics across a fleet</li>
+          <li><code class="inline">--on-fail-exec SCRIPT</code> — execvp-based failure hook (PagerDuty, Slack, etc.)</li>
+          <li><code class="inline">--config FILE</code> — persistent key=value configuration file</li>
+          <li>Long filename test: 255-byte names, spaces, colons, UTF-8 multibyte</li>
+          <li>NFSv4 delegation detection via <code class="inline">/proc/fs/nfsfs/volumes</code></li>
+          <li><code class="inline">/proc/fs/nfsfs/servers</code> parsing — lease time warning if &lt; 30 s</li>
+          <li>OCI image published to <code class="inline">ghcr.io/lsferreira42/nfsdiag</code></li>
+          <li>Shell completions for bash, zsh, and fish</li>
+          <li>Man page <code class="inline">docs/nfsdiag.8</code></li>
+          <li>CI matrix: Ubuntu 24.04, Fedora 41, Debian 12, Alpine 3.21</li>
+          <li>ASan + UBSan CI job; cppcheck and clang-tidy static-analysis jobs</li>
+          <li>linux-arm64 cross-compiled binary in GitHub Releases</li>
+          <li>Fuzzer stubs for XDR, mountstats, mountinfo, RPC stats parsers</li>
+          <li><code class="inline">make coverage</code> target for gcov/lcov coverage</li>
+          <li><strong>Security:</strong> getrandom() random test paths, ambient capability clearing, XDR depth limit, TMPDIR validation, HTML CSP header</li>
+          <li><strong>Fix:</strong> cleanup_all() async-signal-safety (sigprocmask before stdio)</li>
+        </ul>
+
         <p class="subsec">v0.4.1</p>
         <p class="lede">
           Website and CI/CD infrastructure. No changes to diagnostic behaviour.
@@ -1119,7 +1398,7 @@ make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.4.1</strong></span>
+      <span>nfsdiag <strong>v0.6.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>
@@ -1130,6 +1409,8 @@ make bump-version-major    <span class="code__d"># 0.4.1 → 1.0.0</span></code>
       <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
       <span class="foot__sep">·</span>
       <a href="index.html">home</a>
+      <span class="foot__sep">·</span>
+      <a href="author.html">author</a>
       <span class="foot__sep">·</span>
       <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
       <span class="foot__sep">·</span>

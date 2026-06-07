@@ -7,18 +7,141 @@ on:
     branches: [main]
 
 jobs:
+  # ---- matrix build: Ubuntu LTS, Fedora, Debian, Alpine ----
   build:
+    name: build (${{ matrix.os }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            image: ubuntu:24.04
+            install: apt-get update -q && apt-get install -y -q build-essential pkg-config libtirpc-dev
+          - os: fedora-41
+            image: fedora:41
+            install: dnf install -y gcc make pkgconf-pkg-config libtirpc-devel
+          - os: debian-12
+            image: debian:12
+            install: apt-get update -q && apt-get install -y -q build-essential pkg-config libtirpc-dev
+          - os: alpine-3.21
+            image: alpine:3.21
+            install: apk add --no-cache gcc musl-dev make pkgconf libtirpc-dev
+
+    container:
+      image: ${{ matrix.image }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ${{ matrix.install }}
+
+      - name: Build (-Werror)
+        run: make "CFLAGS=-O2 -Wall -Wextra -Werror" rebuild
+
+      - name: Self-check
+        run: make check
+
+      - name: Generate SBOM
+        run: make sbom
+
+  # ---- AddressSanitizer + UBSan ----
+  sanitizers:
+    name: sanitizers (ASan + UBSan)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential pkg-config libtirpc-dev
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
+
+      - name: Build with ASan + UBSan
+        run: |
+          make "CFLAGS=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror" rebuild
+
+      - name: Self-check under sanitizers
+        run: make check
+
+  # ---- static analysis: cppcheck ----
+  cppcheck:
+    name: cppcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install cppcheck
+        run: sudo apt-get update -q && sudo apt-get install -y -q cppcheck
+
+      - name: Run cppcheck
+        run: |
+          cppcheck --enable=all --error-exitcode=1 \
+            --suppress=missingIncludeSystem \
+            --suppress=unusedFunction \
+            -I src \
+            src/
+
+  # ---- static analysis: clang-tidy ----
+  clang-tidy:
+    name: clang-tidy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev clang clang-tidy bear
+
+      - name: Generate compile_commands.json
+        run: bear -- make "CFLAGS=-O2 -Wall -Wextra" rebuild
+
+      - name: Run clang-tidy
+        run: |
+          clang-tidy \
+            --config-file=.clang-tidy \
+            src/*.c -- \
+            $(pkg-config --cflags libtirpc) \
+            -D_GNU_SOURCE
+
+  fixture-tests:
+    name: docker fixtures (rootless subset)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
 
       - name: Build
         run: make
 
-      - name: Self-check
-        run: make check
+      - name: Run rootless fixture subset
+        run: |
+          make test-fixture-rpcbind-unreachable
+          make test-fixture-nfs-port-unreachable
+          make test-fixture-rpc-map-missing-nfs
+          make test-fixture-mountd-unavailable
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
+      - name: Build for CodeQL
+        run: make rebuild
+      - uses: github/codeql-action/analyze@v3

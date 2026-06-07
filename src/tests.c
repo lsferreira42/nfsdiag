@@ -19,7 +19,18 @@ static int fill_file(int fd, size_t bytes) {
 }
 
 static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx) {
-    snprintf(dst, sz, "%s/.nfsdoctor-%ld-%s", mp, (long)getpid(), sfx);
+    /* Add random bytes to make test paths unpredictable even in shared
+     * exports, preventing timing-based symlink pre-creation by other users. */
+    uint32_t rnd = 0;
+    if (getrandom(&rnd, sizeof(rnd), 0) < 0)
+        rnd = (uint32_t)(time(NULL) ^ getpid());
+    snprintf(dst, sz, "%s/.nfsdoctor-%ld-%08x-%s", mp, (long)getpid(), rnd, sfx);
+}
+
+static void cleanup_test_path(const char *path) {
+    if (!path || !path[0]) return;
+    if (unlink(path) != 0 && errno != ENOENT)
+        report_warn("test path cleanup failed for %s: %s", path, strerror(errno));
 }
 
 static int cmp_double(const void *a, const void *b) {
@@ -27,7 +38,7 @@ static int cmp_double(const void *a, const void *b) {
     return (da > db) - (da < db);
 }
 
-/* ---- FS timeout (item 3) ---- */
+/* ---- FS timeout ---- */
 static volatile sig_atomic_t fs_timeout_fired = 0;
 static void fs_timeout_handler(int sig) { (void)sig; fs_timeout_fired = 1; }
 
@@ -90,7 +101,7 @@ static void test_directory_access(const char *mp) {
     closedir(d);
 }
 
-/* ---- ACL with NFSv4 support (item 9) ---- */
+/* ---- ACL with NFSv4 support ---- */
 static void test_acl(const char *mp, struct export_report *rpt) {
     ssize_t sz = getxattr(mp, "system.posix_acl_access", NULL, 0);
     if (sz > 0) { report_ok("POSIX ACL detected on export root (%zd bytes)", sz); rpt->acl_posix = 1; }
@@ -124,10 +135,10 @@ static void test_metadata_latency(const char *mp, struct export_report *rpt) {
         clock_gettime(CLOCK_MONOTONIC, &a);
         int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC | O_NOFOLLOW, 0600);
         if (fd < 0) break;
-        if (write(fd, "x", 1) < 0) { close(fd); unlink(path); break; }
+        if (write(fd, "x", 1) < 0) { close(fd); cleanup_test_path(path); break; }
         close(fd);
-        if (rename(path, renamed) != 0) { unlink(path); break; }
-        if (unlink(renamed) != 0) break;
+        if (rename(path, renamed) != 0) { cleanup_test_path(path); break; }
+        if (unlink(renamed) != 0) { cleanup_test_path(renamed); break; }
         clock_gettime(CLOCK_MONOTONIC, &b);
         samples[completed++] = elapsed_ms(a, b);
     }
@@ -167,6 +178,8 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
         report_info("write/read benchmark skipped by --read-only");
         return;
     }
+    if (opt.bench_bytes < 4U * 1024U * 1024U)
+        report_warn("benchmark sample is small (%zu bytes); treat throughput as smoke-test signal, not capacity", opt.bench_bytes);
     char path[4096];
     make_test_path(path, sizeof(path), mp, "io-bench");
     struct sigaction old_sa;
@@ -188,7 +201,7 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
         if (rs < 0 || (size_t)rs >= sizeof(fio_size) ||
             rf < 0 || (size_t)rf >= sizeof(fio_file)) {
             report_warn("fio argument construction truncated; skipping fio benchmark");
-            close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+            close(fd); cleanup_test_path(path); disarm_fs_timeout(&old_sa); return;
         }
         char output[CMD_OUTPUT_LIMIT];
         char *fio_write_argv[] = {"fio", "--name=nfsdiag", "--ioengine=sync",
@@ -218,7 +231,7 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
             else if (errno == EDQUOT) report_fail("write failed: Disk quota exceeded (EDQUOT)");
             else if (errno == ENOSPC) report_fail("write failed: No space left on device (ENOSPC)");
             else report_fail("write test failed: %s", strerror(errno));
-            close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+            close(fd); cleanup_test_path(path); disarm_fs_timeout(&old_sa); return;
         }
         if (fsync(fd) != 0) report_warn("fsync failed: %s", strerror(errno));
         clock_gettime(CLOCK_MONOTONIC, &w1);
@@ -254,8 +267,7 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
 
     disarm_fs_timeout(&old_sa);
     close(fd);
-    if (unlink(path) != 0)
-        report_warn("test file cleanup failed: %s", strerror(errno));
+    cleanup_test_path(path);
 }
 
 static void test_advisory_lock(const char *mp, struct export_report *rpt) {
@@ -272,7 +284,7 @@ static void test_advisory_lock(const char *mp, struct export_report *rpt) {
         return;
     }
     if (write(fd, "x", 1) < 0) {
-        close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+        close(fd); cleanup_test_path(path); disarm_fs_timeout(&old_sa); return;
     }
 
     struct flock fl;
@@ -290,7 +302,7 @@ static void test_advisory_lock(const char *mp, struct export_report *rpt) {
 
     disarm_fs_timeout(&old_sa);
     close(fd);
-    unlink(path);
+    cleanup_test_path(path);
 }
 
 static void test_root_squash(const char *mp, struct export_report *rpt) {
@@ -307,7 +319,7 @@ static void test_root_squash(const char *mp, struct export_report *rpt) {
         return;
     }
     if (write(fd, "x", 1) < 0) {
-        close(fd); unlink(path); disarm_fs_timeout(&old_sa); return;
+        close(fd); cleanup_test_path(path); disarm_fs_timeout(&old_sa); return;
     }
 
     struct stat st;
@@ -332,18 +344,24 @@ static void test_root_squash(const char *mp, struct export_report *rpt) {
 
     disarm_fs_timeout(&old_sa);
     close(fd);
-    unlink(path);
+    cleanup_test_path(path);
 }
 
 static void test_special_files(const char *mp) {
     if (!opt.write_test) return;
+    if (!opt.dangerous_fs_tests) {
+        report_info("special file probes skipped; pass --dangerous-fs-tests for symlink/hardlink/FIFO/device-node tests");
+        return;
+    }
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
     char path1[4096], path2[4096];
     make_test_path(path1, sizeof(path1), mp, "symlink-target");
     make_test_path(path2, sizeof(path2), mp, "symlink");
     
     if (symlink(path1, path2) == 0) {
         report_ok("symlink creation succeeded");
-        unlink(path2);
+        cleanup_test_path(path2);
     } else {
         report_info("symlink creation failed: %s", strerror(errno));
     }
@@ -353,17 +371,17 @@ static void test_special_files(const char *mp) {
         close(fd);
         if (link(path1, path2) == 0) {
             report_ok("hardlink creation succeeded");
-            unlink(path2);
+            cleanup_test_path(path2);
         } else {
             report_info("hardlink creation failed: %s", strerror(errno));
         }
-        unlink(path1);
+        cleanup_test_path(path1);
     }
     
     make_test_path(path1, sizeof(path1), mp, "fifo");
     if (mkfifo(path1, 0600) == 0) {
         report_ok("mkfifo succeeded");
-        unlink(path1);
+        cleanup_test_path(path1);
     } else {
         report_info("mkfifo failed: %s", strerror(errno));
     }
@@ -371,20 +389,24 @@ static void test_special_files(const char *mp) {
     make_test_path(path1, sizeof(path1), mp, "device");
     if (mknod(path1, S_IFCHR | 0600, makedev(1, 3)) == 0) { /* /dev/null major/minor */
         report_ok("mknod succeeded (device node creation allowed)");
-        unlink(path1);
+        cleanup_test_path(path1);
     } else {
         report_info("mknod failed: %s (expected if root_squash or server blocks it)", strerror(errno));
     }
+
+    disarm_fs_timeout(&old_sa);
 }
 
 static void test_xattr_support(const char *mp) {
     if (!opt.write_test) return;
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
     char path[4096];
     make_test_path(path, sizeof(path), mp, "xattr");
     int fd = open(path, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd < 0) return;
+    if (fd < 0) { disarm_fs_timeout(&old_sa); return; }
     close(fd);
-    
+
     const char *attrs[] = {"user.test", "trusted.test", "security.selinux"};
     for (int i = 0; i < 3; i++) {
         if (setxattr(path, attrs[i], "1", 1, 0) == 0) {
@@ -399,20 +421,23 @@ static void test_xattr_support(const char *mp) {
             }
         }
     }
-    unlink(path);
+    cleanup_test_path(path);
+    disarm_fs_timeout(&old_sa);
 }
 
 static void test_copy_file_range(const char *mp) {
     if (!opt.write_test) return;
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
     char path1[4096], path2[4096];
     make_test_path(path1, sizeof(path1), mp, "cfr-src");
     make_test_path(path2, sizeof(path2), mp, "cfr-dst");
-    
+
     int fd1 = open(path1, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd1 < 0) return;
-    if (write(fd1, "testdata", 8) != 8) { close(fd1); unlink(path1); return; }
+    if (fd1 < 0) { disarm_fs_timeout(&old_sa); return; }
+    if (write(fd1, "testdata", 8) != 8) { close(fd1); cleanup_test_path(path1); disarm_fs_timeout(&old_sa); return; }
     close(fd1);
-    
+
     fd1 = open(path1, O_RDONLY | O_NOFOLLOW);
     int fd2 = open(path2, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
     if (fd1 >= 0 && fd2 >= 0) {
@@ -430,12 +455,15 @@ static void test_copy_file_range(const char *mp) {
     }
     if (fd1 >= 0) close(fd1);
     if (fd2 >= 0) close(fd2);
-    unlink(path1);
-    unlink(path2);
+    cleanup_test_path(path1);
+    cleanup_test_path(path2);
+    disarm_fs_timeout(&old_sa);
 }
 
 static void test_fallocate_odirect(const char *mp) {
     if (!opt.write_test) return;
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
     char path[4096];
     make_test_path(path, sizeof(path), mp, "falloc");
     int fd = open(path, O_CREAT | O_RDWR | O_DIRECT | O_NOFOLLOW, 0600);
@@ -456,18 +484,21 @@ static void test_fallocate_odirect(const char *mp) {
         else
             report_warn("O_DIRECT open failed: %s", strerror(errno));
     }
-    unlink(path);
+    cleanup_test_path(path);
+    disarm_fs_timeout(&old_sa);
 }
 
 static void test_close_to_open(const char *mp) {
     if (!opt.write_test) return;
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
     char path[4096];
     make_test_path(path, sizeof(path), mp, "cto");
     int fd = open(path, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd < 0) return;
-    if (write(fd, "test", 4) != 4) { close(fd); unlink(path); return; }
+    if (fd < 0) { disarm_fs_timeout(&old_sa); return; }
+    if (write(fd, "test", 4) != 4) { close(fd); cleanup_test_path(path); disarm_fs_timeout(&old_sa); return; }
     close(fd);
-    
+
     fd = open(path, O_RDONLY | O_NOFOLLOW);
     if (fd >= 0) {
         char buf[8] = {0};
@@ -478,19 +509,26 @@ static void test_close_to_open(const char *mp) {
         }
         close(fd);
     }
-    unlink(path);
+    cleanup_test_path(path);
+    disarm_fs_timeout(&old_sa);
 }
 
 static int child_identity_probe(const char *mp, uid_t uid, gid_t gid) {
     prctl(PR_SET_PDEATHSIG, SIGKILL);
     close_inherited_fds(-1, -1);
+
+    /* Clear ambient capabilities before setuid so the child does not
+     * inherit capabilities from the parent (available since Linux 4.3).
+     * Failure is non-fatal — we proceed without ambient cap clearing. */
+    prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
+
     if (opt.supplemental_group_count > 0 && setgroups(opt.supplemental_group_count, opt.supplemental_groups) != 0) _exit(CHILD_SETGROUPS_FAIL);
     if (setgid(gid) != 0) _exit(CHILD_SETGID_FAIL);
     if (setuid(uid) != 0) _exit(CHILD_SETUID_FAIL);
     if (access(mp, R_OK | X_OK) != 0) _exit(CHILD_ACCESS_DENIED);
     if (!opt.write_test) _exit(CHILD_OK);
     char path[4096];
-    snprintf(path, sizeof(path), "%s/.nfsdoctor-identity-%ld-%lu", mp, (long)getpid(), (unsigned long)uid);
+    make_test_path(path, sizeof(path), mp, "identity");
     int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) _exit(errno == EACCES || errno == EPERM || errno == EROFS ? CHILD_CREATE_DENIED : CHILD_OPEN_ERROR);
     if (write(fd, "x", 1) != 1) { close(fd); unlink(path); _exit(CHILD_WRITE_ERROR); }
@@ -547,7 +585,144 @@ static void test_stale_loop(const char *mp, struct export_report *rpt) {
     if (!estale_seen) report_ok("no ESTALE observed in %d stat/readdir iterations", opt.stale_iterations);
 }
 
-void diagnose_mounted_export(const char *export_path, const char *mountpoint, int export_idx) {
+/* ---- Long filenames and special character test ---- */
+
+static void test_long_filenames(const char *mp) {
+    if (!opt.write_test) return;
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
+
+    /* 255-byte filename (ENAMETOOLONG on some servers) */
+    char longname[4096];
+    char part[256];
+    memset(part, 'a', 255);
+    part[255] = '\0';
+    snprintf(longname, sizeof(longname), "%s/%s", mp, part);
+    int fd = open(longname, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        report_ok("255-byte filename creation succeeded");
+        close(fd); cleanup_test_path(longname);
+    } else if (errno == ENAMETOOLONG) {
+        report_info("255-byte filename rejected (ENAMETOOLONG): server/export limits name length");
+    } else {
+        report_info("255-byte filename: %s", strerror(errno));
+    }
+
+    /* Filename with spaces */
+    char spacename[4096];
+    snprintf(spacename, sizeof(spacename), "%s/nfsdiag test file with spaces", mp);
+    fd = open(spacename, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        report_ok("filename with spaces created successfully");
+        close(fd); cleanup_test_path(spacename);
+    } else {
+        report_info("filename with spaces: %s", strerror(errno));
+    }
+
+    /* UTF-8 multibyte filename (ñ, 中文) */
+    char utf8name[4096];
+    snprintf(utf8name, sizeof(utf8name), "%s/nfsdiag-\xc3\xb1-\xe4\xb8\xad\xe6\x96\x87", mp);
+    fd = open(utf8name, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        report_ok("UTF-8 multibyte filename created successfully");
+        close(fd); cleanup_test_path(utf8name);
+    } else {
+        report_info("UTF-8 multibyte filename: %s", strerror(errno));
+    }
+
+    /* Filename with colon and at-sign (Windows interop relevant) */
+    char specialname[4096];
+    snprintf(specialname, sizeof(specialname), "%s/nfsdiag@host:port", mp);
+    fd = open(specialname, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        report_ok("filename with colon and at-sign created successfully");
+        close(fd); cleanup_test_path(specialname);
+    } else {
+        report_info("filename with colon/at-sign: %s", strerror(errno));
+    }
+
+    disarm_fs_timeout(&old_sa);
+}
+
+/* ---- NFSv4 delegation detection ---- */
+
+static void test_nfsv4_delegation(const char *mp, int nfs_version) {
+    if (nfs_version < 4) return;
+
+    struct sigaction old_sa;
+    arm_fs_timeout(&old_sa);
+
+    /* Encourage the server to hand out a delegation by opening and reading a
+     * file, then look at the per-mount RPC op table. Delegation activity is
+     * recorded as DELEGRETURN operations in /proc/self/mountstats. */
+    if (opt.write_test) {
+        char path[4096];
+        make_test_path(path, sizeof(path), mp, "deleg-probe");
+        int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd >= 0) {
+            if (write(fd, "x", 1) == 1) {
+                char b;
+                lseek(fd, 0, SEEK_SET);
+                (void)read(fd, &b, 1);
+            }
+            close(fd);
+            cleanup_test_path(path);
+        }
+    }
+
+    FILE *f = fopen("/proc/self/mountstats", "r");
+    if (!f) {
+        report_info("NFSv4 delegation check: /proc/self/mountstats not readable");
+        disarm_fs_timeout(&old_sa);
+        return;
+    }
+
+    char line[2048];
+    int in_section = 0, seen = 0;
+    unsigned long deleg_ops = 0;
+    while (fgets(line, sizeof(line), f)) {
+        if (strncmp(line, "device ", 7) == 0) {
+            /* Match the section for this mountpoint exactly, the same way
+             * parse_mountstats() does. */
+            char *mop = strstr(line, " mounted on ");
+            int matched = 0;
+            if (mop) {
+                char *s = mop + 12;
+                char *e = strstr(s, " with fstype");
+                if (e) {
+                    size_t len = (size_t)(e - s);
+                    char dev_mp[4096] = {0};
+                    if (len < sizeof(dev_mp)) {
+                        memcpy(dev_mp, s, len);
+                        matched = (strcmp(dev_mp, mp) == 0);
+                    }
+                }
+            }
+            in_section = matched;
+            continue;
+        }
+        if (!in_section) continue;
+        char *t = line;
+        while (*t == ' ' || *t == '\t') t++;
+        if (strncmp(t, "DELEGRETURN:", 12) == 0) {
+            sscanf(t + 12, " %lu", &deleg_ops);
+            seen = 1;
+            break;
+        }
+    }
+    fclose(f);
+    disarm_fs_timeout(&old_sa);
+
+    if (!seen)
+        report_info("NFSv4 delegation state not exposed for this mount (no DELEGRETURN counter in mountstats)");
+    else if (deleg_ops > 0)
+        report_ok("NFSv4 delegations in use on this mount (DELEGRETURN ops=%lu)", deleg_ops);
+    else
+        report_info("NFSv4 delegations not observed during test (DELEGRETURN ops=0); server may not grant them or none were recalled");
+}
+
+void diagnose_mounted_export(const char *export_path, const char *mountpoint,
+                             int export_idx, int nfs_version, int nfs_minor) {
     if (opt.verbose) printf("\n[+] Mounted export diagnostics: %s at %s\n", export_path, mountpoint);
     current_export_idx = export_idx;
     struct export_report *rpt = &export_reports[export_idx];
@@ -559,13 +734,17 @@ void diagnose_mounted_export(const char *export_path, const char *mountpoint, in
     test_advisory_lock(mountpoint, rpt);
     test_root_squash(mountpoint, rpt);
     test_special_files(mountpoint);
+    test_long_filenames(mountpoint);
     test_xattr_support(mountpoint);
     test_copy_file_range(mountpoint);
     test_fallocate_odirect(mountpoint);
     test_close_to_open(mountpoint);
+    test_nfsv4_delegation(mountpoint, nfs_version);
     test_metadata_latency(mountpoint, rpt);
     test_stale_loop(mountpoint, rpt);
     parse_mountstats(mountpoint);
     verify_mount_options(mountpoint, rpt);
+    check_nfsfs_servers(mountpoint);
+    (void)nfs_minor; /* stored in export_report already */
     current_export_idx = -1;
 }

@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nfsdiag — author</title>
+    <meta
+      name="description"
+      content="Leandro Ferreira — SRE/DevOps specialist and software developer, author of nfsdiag. 15+ years across infrastructure, automation, and distributed systems."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="canonical" href="https://www.nfsdiag.org/author.html" />
+    <meta property="og:url" content="https://www.nfsdiag.org/author.html" />
+    <link rel="stylesheet" href="website/site.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("nfsdiag-theme");
+          if (t === "dark" || t === "light") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <!-- ── reusable mark ────────────────────────────────────────────── -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="nfsdiag-mark" viewBox="0 0 64 64">
+          <path class="folder" d="M 8 14 H 24 L 28 18 H 56 V 52 H 8 Z" fill="none" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+          <path class="pulse" d="M 0 35 H 20 L 23 29 L 28 43 L 34 21 L 40 47 L 44 35 H 64" fill="none" stroke-width="4.5" stroke-linejoin="round" stroke-linecap="round"/>
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- ── nav ──────────────────────────────────────────────────────── -->
+    <header class="nav">
+      <div class="nav__inner">
+        <a class="nav__brand" href="index.html">
+          <svg class="mark" width="22" height="22" viewBox="0 0 64 64" aria-label="nfsdiag">
+            <use href="#nfsdiag-mark"></use>
+          </svg>
+          <span class="wm">nfs<span class="wm__diag">diag</span></span>
+        </a>
+        <nav class="nav__links" aria-label="primary">
+          <a href="index.html">← home</a>
+          <a href="docs.html" class="nav__hide-sm">docs</a>
+          <a href="author.html">author</a>
+          <span class="nav__sep nav__hide-sm">│</span>
+          <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M 8 2 A 6 6 0 0 1 8 14 Z" fill="currentColor"/>
+            </svg>
+          </button>
+          <a class="nav__ext" href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">github ↗</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="top">
+      <!-- ── manpage header ────────────────────────────────────────── -->
+      <div class="manhead" aria-hidden="true">
+        <span>NFSDIAG(1)</span>
+        <span>Author</span>
+        <span>NFSDIAG(1)</span>
+      </div>
+
+      <!-- ── manpage hero ───────────────────────────────────────────── -->
+      <section class="manpage">
+        <h2>AUTHOR</h2>
+        <p class="desc">
+          <strong>Leandro Ferreira</strong> — SRE/DevOps specialist and software
+          developer. The person behind nfsdiag.
+        </p>
+
+        <h2>WHO I AM</h2>
+        <p>
+          Hi, I'm Leandro Ferreira. I'm an SRE/DevOps specialist and software
+          developer with more than 15 years of experience in infrastructure,
+          automation, and development. I currently work at
+          <strong>Magalu Cloud</strong> on the IaaS team, where I provision and
+          run the infrastructure that developers and other teams build on top of.
+        </p>
+
+        <h2>MY JOURNEY</h2>
+        <p>
+          My career was built at the intersection of development and
+          infrastructure, always with a focus on creating scalable, efficient
+          solutions. I started out in traditional infrastructure and grew into
+          cloud environments, automation, and DevOps — working at companies like
+          GetNinjas, Totvs, Locaweb, GoCache CDN, and UolHost.
+        </p>
+        <p>
+          Over the years I developed a genuine passion for solving complex
+          infrastructure and architecture problems, applying Infrastructure as
+          Code, observability, and FinOps practices to optimize resources and
+          improve the performance of distributed systems.
+        </p>
+
+        <!-- ── terminal mock ───────────────────────────────────────── -->
+        <div class="terminal" role="img" aria-label="whoami">
+          <div class="terminal__head">
+            <div class="terminal__lights">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="terminal__title">leandrosf.com — ~</div>
+            <div style="width: 50px"></div>
+          </div>
+<pre class="terminal__body"><span class="prompt">$</span> whoami
+leandro ferreira
+<span class="prompt">$</span> cat role
+SRE / DevOps · software developer
+<span class="prompt">$</span> cat now
+<span class="ok">Magalu Cloud</span> <span class="dim">— IaaS team</span>
+<span class="prompt">$</span> uptime
+<span class="dim">15+ years</span> in infra, automation &amp; distributed systems
+<span class="prompt">$</span> <span class="cursor"></span></pre>
+        </div>
+      </section>
+
+      <!-- ── what I do ──────────────────────────────────────────────── -->
+      <section class="section" id="work">
+        <h2 class="section__title">
+          <a class="section__hash" href="#work">#</a>
+          what I do
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>cloud</th>
+              <td>Designing and implementing architectures on AWS and GCP</td>
+            </tr>
+            <tr>
+              <th>k8s</th>
+              <td>Managing and deploying Kubernetes clusters and resources</td>
+            </tr>
+            <tr>
+              <th>iac</th>
+              <td>Infrastructure as Code with Terraform, Ansible, and Puppet</td>
+            </tr>
+            <tr>
+              <th>observ</th>
+              <td>Monitoring with Prometheus, Grafana, and the Elastic Stack</td>
+            </tr>
+            <tr>
+              <th>dev</th>
+              <td>Python, Go, and shell, with deep cloud-system integration</td>
+            </tr>
+            <tr>
+              <th>mentor</th>
+              <td>Technical mentoring and leadership of platform and DevOps teams</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ── key skills ─────────────────────────────────────────────── -->
+      <section class="section" id="skills">
+        <h2 class="section__title">
+          <a class="section__hash" href="#skills">#</a>
+          key skills
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>code</th>
+              <td>Python · Go · Lua · Shell</td>
+            </tr>
+            <tr>
+              <th>cloud</th>
+              <td>AWS · GCP · Kubernetes · Terraform · Docker · CI/CD</td>
+            </tr>
+            <tr>
+              <th>data</th>
+              <td>
+                MySQL/MariaDB · PostgreSQL · MongoDB · Redis · Memcached ·
+                Varnish
+              </td>
+            </tr>
+            <tr>
+              <th>systems</th>
+              <td>
+                Linux performance tuning · Nginx · Apache · troubleshooting
+                distributed systems
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ── contact ────────────────────────────────────────────────── -->
+      <section class="section" id="contact">
+        <h2 class="section__title">
+          <a class="section__hash" href="#contact">#</a>
+          contact
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p class="lede">
+          If you're into DevOps, cloud architecture, or infrastructure
+          development, feel free to reach out. My personal site is
+          <a href="https://leandrosf.com" target="_blank" rel="noopener">leandrosf.com</a>.
+        </p>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>site</th>
+              <td><a href="https://leandrosf.com" target="_blank" rel="noopener">leandrosf.com ↗</a></td>
+            </tr>
+            <tr>
+              <th>github</th>
+              <td><a href="https://github.com/lsferreira42" target="_blank" rel="noopener">lsferreira42 ↗</a></td>
+            </tr>
+            <tr>
+              <th>linkedin</th>
+              <td><a href="https://www.linkedin.com/in/lsferreira42" target="_blank" rel="noopener">lsferreira42 ↗</a></td>
+            </tr>
+            <tr>
+              <th>bluesky</th>
+              <td><a href="https://bsky.app/profile/lsferreira42.bsky.social" target="_blank" rel="noopener">lsferreira42 ↗</a></td>
+            </tr>
+            <tr>
+              <th>cv</th>
+              <td><a href="https://github.com/lsferreira42" target="_blank" rel="noopener">GitHub CV ↗</a></td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="lede" style="margin-top: 28px;">
+          Back to <a href="index.html">the project home</a> or read
+          <a href="docs.html">the full documentation</a>.
+        </p>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>nfsdiag <strong>v0.6.0</strong></span>
+      <span class="foot__sep">·</span>
+      <span>MIT</span>
+      <span class="foot__sep">·</span>
+      <span>C99</span>
+      <span class="foot__sep">·</span>
+      <span>libtirpc</span>
+      <span class="foot__spacer"></span>
+      <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
+      <span class="foot__sep">·</span>
+      <a href="index.html">home</a>
+      <span class="foot__sep">·</span>
+      <a href="docs.html">docs</a>
+      <span class="foot__sep">·</span>
+      <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
+    </footer>
+
+    <!-- theme toggle -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById("theme-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var cur = root.getAttribute("data-theme") || "light";
+          var next = cur === "light" ? "dark" : "light";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("nfsdiag-theme", next); } catch (e) {}
+        });
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,284 @@
+.TH NFSDIAG 8 "2025" "nfsdiag 0.6.0" "System Administration"
+.SH NAME
+nfsdiag \- NFS server diagnostic tool
+.SH SYNOPSIS
+.B nfsdiag
+[\fIOPTIONS\fR] \fIserver\fR
+.br
+.B nfsdiag
+\fB\-\-hosts\-file\fR \fIFILE\fR [\fIOPTIONS\fR]
+.br
+.B nfsdiag
+\fBdiff\fR \fIbefore.json\fR \fIafter.json\fR
+.SH DESCRIPTION
+.B nfsdiag
+tests NFS servers from the client side, identifying network, RPC, protocol,
+permission, and performance issues across multiple exports.
+It performs a layered diagnostic: network port reachability, RPC service
+discovery, export enumeration, mount cascade (NFSv4.2 \(-> 4.1 \(-> 4 \(-> 3),
+filesystem diagnostics (read/write, ACLs, locks, benchmarks, special files,
+xattrs, delegations), and finally RPC statistics comparison.
+.PP
+Results are printed in real time to stdout and can also be emitted as JSON,
+HTML, NDJSON, Prometheus text, or an evidence bundle for archiving or ticket
+attachments.
+.SH OPTIONS
+.SS "Diagnostic options"
+.TP
+.BR \-e ", " \-\-export " " \fIPATH\fR
+Test only the export at \fIPATH\fR. Useful for NFSv4-only servers that hide
+the mountd export list.
+.TP
+.BR \-o ", " \-\-mount\-options " " \fIOPTS\fR
+Extra mount options passed verbatim to
+.BR mount (8).
+.TP
+.B \-\-no\-mount
+Run network and RPC checks only; skip all mount and filesystem tests.
+.TP
+.B \-\-dry\-run
+Print what would be done; skip actual mounts and filesystem tests.
+.TP
+.B \-\-read\-only
+Skip write, benchmark, and creation tests. Only runs read-side diagnostics.
+.TP
+.BI \-\-uid " UID"
+Simulate access as \fIUID\fR. Repeatable. Requires root or CAP_SETUID.
+.TP
+.BI \-\-gid " GID"
+Override the GID for the last \fB\-\-uid\fR entry.
+.TP
+.BI \-\-groups " G1,G2,..."
+Supplemental GIDs for the UID/GID simulation.
+.TP
+.B \-\-krb5
+Check Kerberos prerequisites: valid ticket (\fBklist -s\fR), rpc-gssd running.
+.TP
+.B \-\-udp
+Also probe RPC NULLPROC over UDP.
+.TP
+.B \-\-ipv4\-only
+Force IPv4 for all direct TCP connectivity checks.
+.TP
+.B \-\-ipv6\-only
+Force IPv6 for all direct TCP connectivity checks.
+.TP
+.B \-\-no\-nfs4\-discovery
+Disable the NFSv4 pseudo-root \fB/\fR fallback when mountd returns an empty
+export list.
+.TP
+.B \-\-mount\-namespace
+Run mounts in a private mount namespace via
+.BR unshare (1).
+Requires root or CAP_SYS_ADMIN. Prevents mounts from leaking into the global
+namespace.
+.TP
+.B \-\-no\-mount\-namespace
+Disable the automatic private mount namespace normally attempted for live mount
+tests when running as root.
+.TP
+.B \-\-dangerous\-fs\-tests
+Enable symlink, hardlink, FIFO, and device-node creation probes. These are useful
+for diagnostics but are intentionally opt-in for production exports.
+.TP
+.B \-\-allow\-risky\-mount\-options
+Permit risky mount options such as \fBexec\fR, \fBsuid\fR, and \fBdev\fR.
+Without this flag those options are rejected before mounting.
+.TP
+.BI \-\-profile " NAME"
+Apply a preset. Valid values: \fBquick\fR, \fBsafe\fR, \fBfull\fR,
+\fBperformance\fR, \fBsecurity\fR, \fBreadonly\fR.
+.TP
+.BI \-\-hosts\-file " FILE"
+Read one host per line from \fIFILE\fR and run diagnostics for each. Lines
+starting with \fB#\fR are comments.
+.TP
+.BI \-\-watch " SEC"
+Re-run diagnostics every \fISEC\fR seconds until interrupted with Ctrl-C.
+Clears the terminal between iterations.
+.TP
+.BI \-\-on\-fail\-exec " SCRIPT"
+Execute \fISCRIPT\fR when any test fails. Receives environment variables
+\fBNFSDIAG_HOST\fR, \fBNFSDIAG_LEVEL\fR, \fBNFSDIAG_FAIL_COUNT\fR,
+\fBNFSDIAG_WARN_COUNT\fR. Called through a resolved trusted path with a minimal
+environment, never via a shell.
+.TP
+.BI \-\-config " FILE"
+Load options from \fIFILE\fR before parsing the remaining CLI arguments.
+Format: \fIkey\fR = \fIvalue\fR, one per line. CLI flags override the config file.
+.SS "Timeout options"
+.TP
+.BI \-\-timeout " SEC"
+Timeout in seconds for network and RPC connect operations. Default: 5.
+.TP
+.BI \-\-command\-timeout " SEC"
+Timeout for mount and umount commands. Default: 30.
+.TP
+.BI \-\-fs\-timeout " SEC"
+Timeout for each filesystem test group. Default: 30.
+.TP
+.BI \-\-delay\-ms " MS"
+Delay in milliseconds between testing each export (rate limiting). Default: 0.
+.SS "Benchmark options"
+.TP
+.BI \-\-bench\-bytes " BYTES"
+Size of the read/write benchmark file. Default: 4194304 (4 MiB).
+.TP
+.BI \-\-bench\-iterations " N"
+Number of iterations for the metadata latency benchmark. Default: 10.
+.TP
+.BI \-\-bench\-type " TYPE"
+Benchmark engine. Valid values: \fBinternal\fR (default), \fBfio\fR.
+.TP
+.BI \-\-stale\-iterations " N"
+Number of stat/readdir iterations in the ESTALE probe loop. Default: 100.
+.SS "Output options"
+.TP
+.BI \-\-json[= PATH ]
+Emit a structured JSON report to \fIPATH\fR. Use \fB\-\fR or omit for stdout.
+.TP
+.BI \-\-html[= PATH ]
+Emit a self-contained HTML report to \fIPATH\fR. Use \fB\-\fR or omit for stdout.
+.TP
+.BI \-\-output\-dir " DIR"
+Write a bundle containing JSON, HTML, evidence text, and SHA256 checksums.
+.TP
+.BI \-\-output\-format " FMT"
+Set the terminal output format. Valid values:
+.RS
+.TP
+.B text
+Default. Real-time tagged lines ([OK], [WARN], [FAIL], [INFO]).
+.TP
+.B table
+Summary table using box-drawing characters at end of run.
+.TP
+.B ndjson
+Newline-delimited JSON: one event object per line as events are generated.
+.TP
+.B prometheus
+Emit metrics in OpenMetrics/Prometheus text format at end of run.
+.RE
+.TP
+.B \-\-keep\-temp
+Do not delete the temporary mount workspace after tests complete.
+.TP
+.BR \-v ", " \-\-verbose
+Show all diagnostic steps, including INFO-level events.
+.TP
+.BR \-q ", " \-\-quiet
+Suppress all stdout except the final JSON/HTML report.
+.TP
+.BR \-V ", " \-\-version
+Print \fBnfsdiag \fIVERSION\fR and exit 0.
+.TP
+.B \-\-self\-test
+Validate local dependencies and pure helper checks, then exit.
+.TP
+.BR \-h ", " \-\-help
+Show usage summary and exit 0.
+.SH "EXIT CODES"
+.TP
+.B 0
+All tests passed.
+.TP
+.B 1
+At least one warning or failure was detected.
+.TP
+.B 2
+Usage error or runtime failure (bad arguments, missing dependencies).
+.SH "STDOUT SUPPRESSION"
+Stdout is suppressed \fIonly\fR when \fB\-\-json=\-\fR or \fB\-\-html=\-\fR (report
+written to stdout). Writing to a file (\fB\-\-json=report.json\fR) keeps stdout
+active. Use \fB\-\-quiet\fR to suppress stdout when writing to a file.
+.SH "ENVIRONMENT"
+.TP
+.B TMPDIR
+Directory under which the temporary mount workspace is created. Default: \fB/tmp\fR.
+Must be owned by the current user and not world-writable unless owned by the
+current user.
+.TP
+.B PATH
+Ignored for helper execution. nfsdiag resolves helper commands from trusted
+system directories and runs them with a minimal environment.
+.SH FILES
+.TP
+.I /proc/net/rpc/nfs
+RPC call statistics captured before and after mount tests.
+.TP
+.I /proc/self/mountstats
+Per-operation NFS latency and timeout statistics parsed after each mount.
+.TP
+.I /proc/self/mountinfo
+Effective mount options (hard/soft, noatime, nconnect, etc.) verified after mount.
+.TP
+.I /proc/fs/nfsfs/servers
+NFS server information (protocol version, active mount count, hostname).
+.TP
+.I /proc/self/mountstats
+NFSv4 delegation activity (DELEGRETURN operations) parsed after each mount.
+.SH EXAMPLES
+.TP
+Basic diagnostics against a single server:
+.B nfsdiag 192.168.1.100
+.TP
+Test a specific export only:
+.B nfsdiag --export /data 192.168.1.100
+.TP
+Simulate access as a non-root user:
+.B nfsdiag --uid 1000 --gid 1000 192.168.1.100
+.TP
+Generate JSON and HTML reports:
+.B nfsdiag --json=report.json --html=report.html 192.168.1.100
+.TP
+Generate an evidence bundle:
+.B nfsdiag --output-dir ./nfsdiag-report 192.168.1.100
+.TP
+Use a safe read-only profile:
+.B nfsdiag --profile safe 192.168.1.100
+.TP
+Compare two JSON reports:
+.B nfsdiag diff before.json after.json
+.TP
+Display results as a summary table:
+.B nfsdiag --output-format=table 192.168.1.100
+.TP
+Monitor an export every 60 seconds:
+.B nfsdiag --watch 60 192.168.1.100
+.TP
+Diagnose multiple servers from a file:
+.B nfsdiag --hosts-file /etc/nfs-servers.txt --json=audit.json
+.TP
+Alert on failure via a custom script:
+.B nfsdiag --on-fail-exec /usr/local/bin/alert.sh 192.168.1.100
+.TP
+Stream events as NDJSON for log pipelines:
+.B nfsdiag --output-format=ndjson 192.168.1.100 | jq 'select(.level=="fail")'
+.TP
+Expose metrics for Prometheus scraping:
+.B nfsdiag --output-format=prometheus 192.168.1.100
+.SH "SECURITY"
+.B nfsdiag
+is designed to be run as root for full NFS mount access. When running as root,
+mount operations use a private mount namespace by default when possible to avoid
+polluting the global namespace. Host, export path, and mount options are
+validated before network or mount activity. Risky mount options require
+\fB\-\-allow\-risky\-mount\-options\fR, and unusual filesystem probes require
+\fB\-\-dangerous\-fs\-tests\fR. External helper commands are resolved from trusted
+directories and executed with a minimal environment. Report files are opened with
+\fBO_NOFOLLOW\fR and mode 0600 to prevent symlink-based overwrites. Test file
+paths include a random component to prevent pre-created symlink attacks in shared
+exports. XDR strings from the server are sanitised for control characters before
+display.
+.SH "SEE ALSO"
+.BR mount.nfs (8),
+.BR exportfs (8),
+.BR rpcinfo (8),
+.BR nfsstat (8),
+.BR mountstats (8)
+.SH "AUTHORS"
+Leandro Ferreira <leandrodsferreira@gmail.com>
+.br
+Website: https://www.nfsdiag.org
+.br
+Source: https://github.com/lsferreira42/nfsdiag

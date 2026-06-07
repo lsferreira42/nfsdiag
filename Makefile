@@ -9,6 +9,10 @@ CC ?= gcc
 PKG_CONFIG ?= pkg-config
 PREFIX ?= /usr/local
 BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man/man8
+BASHCOMPDIR ?= $(PREFIX)/share/bash-completion/completions
+ZSHCOMPDIR ?= $(PREFIX)/share/zsh/site-functions
+FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
 DESTDIR ?=
 
 TARGET := nfsdiag
@@ -38,7 +42,7 @@ DOCKER ?= docker
 DOCKERFILES := $(sort $(wildcard dockerfiles/Dockerfile.*))
 DOCKER_TAG_PREFIX ?= nfs-doctor-fixture
 
-.PHONY: all clean distclean rebuild check help install uninstall docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild check test-unit sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -50,31 +54,80 @@ $(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/nfsdiag.h
 
 rebuild: clean all
 
-check: $(TARGET)
+check: $(TARGET) test-unit
 	./$(TARGET) --help >/dev/null
+	./$(TARGET) --self-test >/dev/null
 	@echo "self-check passed"
+
+test-unit:
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c -o build-unit-tests $(LDLIBS)
+	./build-unit-tests
+	rm -f build-unit-tests
+
+sbom:
+	mkdir -p build
+	@{ \
+	  echo '{'; \
+	  echo '  "spdxVersion": "SPDX-2.3",'; \
+	  echo '  "name": "$(PKG_NAME)-$(VERSION)",'; \
+	  echo '  "files": ['; \
+	  first=1; \
+	  for f in $$(git ls-files 2>/dev/null || find . -type f | sed 's#^\./##'); do \
+	    [ "$$first" = 1 ] || echo ','; \
+	    first=0; \
+	    printf '    {"fileName": "%s"}' "$$f"; \
+	  done; \
+	  echo ''; \
+	  echo '  ]'; \
+	  echo '}'; \
+	} > build/$(PKG_NAME)-$(VERSION).spdx.json
+	@echo "SBOM: build/$(PKG_NAME)-$(VERSION).spdx.json"
 
 install: $(TARGET)
 	install -d "$(DESTDIR)$(BINDIR)"
 	install -m 0755 $(TARGET) "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	install -d "$(DESTDIR)$(MANDIR)"
+	install -m 0644 docs/nfsdiag.8 "$(DESTDIR)$(MANDIR)/nfsdiag.8"
+	install -d "$(DESTDIR)$(BASHCOMPDIR)"
+	install -m 0644 completions/nfsdiag.bash "$(DESTDIR)$(BASHCOMPDIR)/nfsdiag"
+	install -d "$(DESTDIR)$(ZSHCOMPDIR)"
+	install -m 0644 completions/nfsdiag.zsh "$(DESTDIR)$(ZSHCOMPDIR)/_nfsdiag"
+	install -d "$(DESTDIR)$(FISHCOMPDIR)"
+	install -m 0644 completions/nfsdiag.fish "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
+	rm -f "$(DESTDIR)$(MANDIR)/nfsdiag.8"
+	rm -f "$(DESTDIR)$(BASHCOMPDIR)/nfsdiag"
+	rm -f "$(DESTDIR)$(ZSHCOMPDIR)/_nfsdiag"
+	rm -f "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
+
+# ---- Code coverage (gcov/lcov) ----
+coverage:
+	$(MAKE) "CFLAGS=-O0 -g --coverage" "LDFLAGS=--coverage" rebuild
+	@echo "Run tests to generate coverage data, then:"
+	@echo "  lcov --capture --directory src --output-file coverage.info"
+	@echo "  genhtml coverage.info --output-directory coverage-html"
+	@echo "  open coverage-html/index.html"
 
 clean:
-	rm -f $(TARGET) $(SRCDIR)/*.o
+	rm -f $(TARGET) $(SRCDIR)/*.o build-unit-tests VERSION.tmp
 	rm -rf build/
 
 distclean: clean
-	rm -rf .cache
+	rm -rf .cache coverage-html coverage.info
+	find src -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
 help:
 	@echo "Targets:"
 	@echo "  all                  Build $(TARGET)"
 	@echo "  rebuild              Clean and build"
 	@echo "  check                Run a minimal CLI self-check"
-	@echo "  install              Install to DESTDIR/PREFIX, default $(PREFIX)"
-	@echo "  uninstall            Remove installed binary"
+	@echo "  test-unit            Run pure helper unit tests"
+	@echo "  sbom                 Generate a minimal SPDX-style SBOM in build/"
+	@echo "  install              Install binary, man page, and shell completions to DESTDIR/PREFIX, default $(PREFIX)"
+	@echo "  uninstall            Remove installed files"
+	@echo "  coverage             Build with gcov/lcov coverage instrumentation"
 	@echo "  clean                Remove build artifacts"
 	@echo "  distclean            Remove build/cache artifacts"
 	@echo "  docker-list          List available failure fixture Dockerfiles"
@@ -161,7 +214,7 @@ apk:
 	cp build/apk/*.apk build/ || true
 	@echo "APK: build/$(PKG_NAME)-$(VERSION)-r0.apk (approx name)"
 
-packages: $(TARGET)
+packages: $(TARGET) sbom
 	mkdir -p build
 	-$(MAKE) deb
 	-$(MAKE) rpm

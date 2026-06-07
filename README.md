@@ -5,152 +5,105 @@
 [![CI](https://github.com/lsferreira42/nfsdiag/actions/workflows/ci.yml/badge.svg)](https://github.com/lsferreira42/nfsdiag/actions/workflows/ci.yml)
 [![Deploy website to Cloudflare](https://github.com/lsferreira42/nfsdiag/actions/workflows/deploy-website.yml/badge.svg)](https://github.com/lsferreira42/nfsdiag/actions/workflows/deploy-website.yml)
 
-`nfsdiag` is a small command line tool written in C to help debug NFS servers from the client side.
+`nfsdiag` is a command-line NFS diagnostic tool written in C. You give it an IP or hostname, and it checks everything that usually breaks in NFS: network reachability, rpcbind, NFS versions, mountd, exports, permissions, root squash, locking, stale handles, and performance.
 
-The idea is simple: you give one IP or hostname, and the tool checks the things that usually break in NFS: network, rpcbind, NFS versions, mountd, exports, permissions, root squash, locking, stale handles and some basic performance.
-
-It is not magic, and it will not replace a good server side analysis. But it helps a lot to understand if the problem is network, NFS config, permissions, UID/GID mapping, or something more strange.
+It is not magic, and it will not replace a good server-side analysis. But it narrows down whether the problem is network, NFS config, permissions, UID/GID mapping, or something stranger.
 
 ---
 
 ## What this tool does
-
-Today `nfsdiag` can do these checks:
 
 - test if `rpcbind` TCP port `111` is reachable
 - test if NFS TCP port `2049` is reachable
 - query the RPC service map from rpcbind (supports IPv6 fallback)
 - detect registered NFS, mountd, lockd/NLM and statd/NSM services
 - test NFS v2, v3 and v4 with RPC `NULLPROC` (including v4.1 and v4.2 hints)
-- test mountd v1, v2 and v3
-- optionally test RPC over UDP with `--udp`
+- test mountd v1, v2 and v3; optionally probe RPC over UDP
 - enumerate exports using mountd
 - check client prerequisite daemons (nfs-client.target, rpc.gssd, nfs-idmapd)
 - detect Kerberos tickets and configuration with `--krb5`
-- mount exports automatically under `/tmp/nfsdoctor-*`
-- try NFS v4.2 first, then fallback to v4.1, v4, and v3
+- mount exports automatically, trying NFSv4.2 → 4.1 → 4 → 3 in cascade
 - parse and verify effective mount options from `/proc/self/mountinfo`
 - capture RPC stats (retransmissions, auth refreshes) before and after tests
 - extract deep latency metrics from `/proc/self/mountstats`
-- run filesystem checks after mount (close-to-open consistency, special files, quotas)
-- test read/traverse permission
-- test directory listing
+- read NFS server info from `/proc/fs/nfsfs/servers` (protocol version, active mount count)
+- run filesystem checks after mount: close-to-open consistency, special files, quotas
+- test read/traverse permission, directory listing
 - test POSIX ACLs, NFSv4 ACLs, generic xattrs, and SELinux contexts
-- test create/write/read/fsync when allowed (with configurable timeouts)
-- test advanced I/O operations: `copy_file_range`, `fallocate`, and `O_DIRECT`
+- test create/write/read/fsync; advanced I/O: `copy_file_range`, `fallocate`, `O_DIRECT`
 - test advisory locks with `fcntl`
 - detect practical `root_squash` behavior
-- simulate UID/GID access with `prctl` termination safety
-- simulate supplemental groups with `--groups`
-- run metadata latency test with create/rename/unlink
+- simulate UID/GID access with supplemental groups
+- run metadata latency benchmark (create/rename/unlink)
 - run stale file handle loop looking for `ESTALE`
+- test long filenames (255-byte), special characters (spaces, colons, UTF-8 multibyte)
+- detect NFSv4 delegation activity via `/proc/self/mountstats` (DELEGRETURN operations)
 - check for pNFS layouts via `/proc/self/mountstats`
 - run external `fio` benchmarks alongside internal smoke tests
-- safely handle temporary files, mounts and folders using `O_NOFOLLOW`
-- perform safe audits with `--dry-run` and rate limiting (`--delay-ms`)
-- generate hierarchical JSON reports for automation (NFS minor version tracked)
-- generate standalone HTML reports with inline CSS (`--html`)
-- output colored text and progress bars on interactive terminals
-- run Docker fixture tests for regression checks (all 14 fixtures included)
+- generate JSON and HTML reports; stream NDJSON; emit Prometheus metrics
+- emit event categories, stable `check_id` values and remediation text for automation
+- write evidence bundles with `--output-dir`
+- compare two JSON reports with `nfsdiag diff`
+- run local dependency/helper validation with `--self-test`
+- run Docker fixture tests for regression checks (14 scenarios)
 
-By default the output is compact. If you want all details, use `--verbose`.
+By default the output is compact. Use `--verbose` to see all probe steps.
 
 ---
 
 ## Important note
 
-NFS problems are very environment dependent. The result can change because of:
+NFS problems are very environment-dependent. Results can change because of firewall rules, server export options, NFS version, kernel client state, UID/GID mapping, root squash, ACLs, SELinux/AppArmor on the server, server load, or stale file handles that only appear during real use.
 
-- firewall rules
-- server export options
-- NFS version
-- kernel client state
-- UID/GID mapping
-- root squash
-- ACLs
-- SELinux/AppArmor on server
-- server load
-- stale file handles that only happen during real use
+If the tool says no `ESTALE` happened, it only means the tool did not reproduce it during the test window.
 
-So, if the tool says no `ESTALE` happened, it means only that the tool did not reproduce it during the test window. It does not mean the problem can never happen.
+---
+
+## Quick start (OCI image)
+
+No compilation needed:
+
+```sh
+docker run --rm --privileged ghcr.io/lsferreira42/nfsdiag 192.168.1.10
+```
+
+The image is published to `ghcr.io/lsferreira42/nfsdiag` as `:latest` and `:vX.Y.Z` on each release.
 
 ---
 
 ## Build requirements
 
-On Debian or Ubuntu:
-
+**Debian / Ubuntu:**
 ```sh
-sudo apt-get update
-sudo apt-get install -y build-essential pkg-config libtirpc-dev
+sudo apt-get install -y build-essential pkg-config libtirpc-dev nfs-common
 ```
 
-On Fedora/RHEL style distros:
-
+**Fedora / RHEL:**
 ```sh
-sudo dnf install -y gcc make pkgconf-pkg-config libtirpc-devel
-```
-
-For live mount tests you also need NFS client tools.
-
-Debian or Ubuntu:
-
-```sh
-sudo apt-get install -y nfs-common
-```
-
-Fedora/RHEL style distros:
-
-```sh
-sudo dnf install -y nfs-utils
+sudo dnf install -y gcc make pkgconf-pkg-config libtirpc-devel nfs-utils
 ```
 
 ---
 
 ## Build
 
-Normal build:
-
 ```sh
-make
+make                    # build
+make check              # unit tests plus CLI self-check
+make sbom               # minimal SPDX-style SBOM in build/
+sudo make install       # install binary, man page and shell completions to /usr/local
 ```
 
-Clean and rebuild:
-
-```sh
-make rebuild
-```
-
-Small self-check:
-
-```sh
-make check
-```
-
-Install:
-
-```sh
-sudo make install
-```
-
-Install in another prefix:
-
+Override prefix:
 ```sh
 make PREFIX=/opt/nfsdiag install
 ```
 
-Uninstall:
-
-```sh
-sudo make uninstall
-```
-
-Manual compile, if you want:
-
+Manual compile:
 ```sh
 gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
     src/main.c src/mount.c src/network.c src/report.c \
-    src/rpc.c src/stats.c src/tests.c \
+    src/rpc.c src/stats.c src/tests.c src/validation.c \
     -ltirpc -o nfsdiag
 ```
 
@@ -158,301 +111,225 @@ gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
 
 ## Packaging
 
-Packages are placed in `build/` after each build target.
-
-Build a Debian/Ubuntu `.deb`:
-
 ```sh
-make deb
+make deb        # Debian/Ubuntu .deb → build/
+make rpm        # Fedora/RHEL .rpm   → build/
+make apk        # Alpine .apk (needs Docker) → build/
+make packages   # all three
 ```
 
-Build a Fedora/RHEL `.rpm` (requires `rpm-build`):
+Additional packaging templates live under `packaging/`:
 
-```sh
-make rpm
-```
+- `packaging/Dockerfile` for the OCI image
+- `packaging/homebrew/nfsdiag.rb`
+- `packaging/aur/PKGBUILD`
+- `packaging/nix/flake.nix`
 
-Build an Alpine `.apk` (requires Docker):
-
-```sh
-make apk
-```
-
-Build all formats at once:
-
-```sh
-make packages
-```
-
----
-
-## GitHub release
-
-`make release` builds all packages, creates an annotated git tag, pushes it,
-and uploads the resulting `.deb`, `.rpm`, and `.apk` to a GitHub release using
-the `gh` CLI. The working directory must be clean before running.
-
-```sh
-make release
-```
-
-Automated releases also run via GitHub Actions whenever a `v*` tag is pushed.
-The workflow builds DEB on Ubuntu, RPM in a Fedora container, and APK via
-Docker, then creates the release with all three packages attached. See
-`.github/workflows/release.yml`.
-
----
-
-## Version bumping
-
-The version lives in `VERSION` and is mirrored in `src/nfsdiag.h` and all
-packaging files. Use these targets to bump it atomically:
-
-```sh
-make bump-version-bugfix   # 0.4.1 → 0.4.2
-make bump-version-minor    # 0.4.1 → 0.5.0
-make bump-version-major    # 0.4.1 → 1.0.0
-```
-
-Each target rewrites `VERSION`, `src/nfsdiag.h` (`NFSDIAG_VERSION`),
-`packaging/nfsdiag.control`, `packaging/nfsdiag.spec`, and
-`packaging/Dockerfile.apk` in one shot.
+Pre-built binaries (amd64 and arm64), packages, SBOM, checksums and provenance
+are attached to GitHub releases.
 
 ---
 
 ## Basic usage
 
-Full diagnostic:
-
 ```sh
-sudo ./nfsdiag 192.168.1.10
+sudo ./nfsdiag 192.168.1.10          # full diagnostic
+./nfsdiag --verbose 192.168.1.10     # show all steps
+./nfsdiag --no-mount 192.168.1.10    # network/RPC only, no mounts
+sudo ./nfsdiag --export /data 192.168.1.10   # one export only
+sudo ./nfsdiag --read-only 192.168.1.10      # skip write/create tests
+sudo ./nfsdiag --dry-run 192.168.1.10        # print what would run, do nothing
+./nfsdiag --self-test                         # local dependency/helper checks
 ```
 
-Verbose mode:
+Profiles provide safer presets:
 
 ```sh
-sudo ./nfsdiag --verbose 192.168.1.10
-```
-
-Only network and RPC checks, without mounting anything:
-
-```sh
-./nfsdiag --no-mount 192.168.1.10
-```
-
-Test only one export:
-
-```sh
-sudo ./nfsdiag --export /data 192.168.1.10
-```
-
-Pass mount options:
-
-```sh
-sudo ./nfsdiag --mount-options soft,timeo=30,retrans=2 192.168.1.10
-```
-
-Do not create/write test files:
-
-```sh
-sudo ./nfsdiag --read-only 192.168.1.10
-```
-
-Keep the temp folder for manual inspection:
-
-```sh
-sudo ./nfsdiag --keep-temp 192.168.1.10
+sudo ./nfsdiag --profile quick 192.168.1.10
+sudo ./nfsdiag --profile safe 192.168.1.10
+sudo ./nfsdiag --profile full 192.168.1.10
+sudo ./nfsdiag --profile performance 192.168.1.10
+sudo ./nfsdiag --profile security 192.168.1.10
 ```
 
 ---
 
-## Output style
+## Output formats
 
-Default output is clean and short. For example, in a healthy server it can be something like:
+Default output is tagged text (`[OK]`, `[WARN]`, `[FAIL]`, `[INFO]`).
 
-```text
-nfsdiag 0.4.1: 192.168.0.21
-[OK] 1 export(s) discovered
-summary: ok=13 warn=0 fail=0
-```
-
-If you want to see all probe steps, use:
-
+**Summary table** (box-drawing, per-export columns):
 ```sh
-./nfsdiag --verbose 192.168.0.21
+sudo ./nfsdiag --output-format=table 192.168.1.10
 ```
 
-Warnings and failures always appear in normal mode. Informational and low-level OK messages only appear in verbose mode.
+**Streaming NDJSON** (one JSON object per event — ideal for log pipelines):
+```sh
+sudo ./nfsdiag --output-format=ndjson 192.168.1.10 | jq 'select(.level=="fail")'
+```
+
+**Prometheus / OpenMetrics** (emitted at end of run):
+```sh
+sudo ./nfsdiag --output-format=prometheus 192.168.1.10
+```
 
 ---
 
-## JSON output
+## JSON and HTML reports
 
-For automation, use JSON.
-
-JSON to stdout (diagnostic text is suppressed):
-
+JSON to stdout (diagnostic text suppressed):
 ```sh
 ./nfsdiag --json 192.168.1.10
-# or equivalently:
-./nfsdiag --json=- 192.168.1.10
 ```
 
-JSON to file (diagnostic text still appears on stdout normally):
-
+JSON to file (diagnostic text still on stdout):
 ```sh
 ./nfsdiag --json=report.json 192.168.1.10
 ```
 
-To suppress stdout when writing JSON to a file, combine with `--quiet`:
-
-```sh
-./nfsdiag --quiet --json=report.json 192.168.1.10
-```
-
-The JSON includes:
-
-- tool name and version
-- host
-- timestamp
-- system information (kernel, hostname, arch)
-- summary (ok, warn, fail)
-- options used
-- exports (hierarchical list of mount tests with performance metrics, ACLs, NFS major and minor version)
-- global events
-- recommendations
-
----
-
-## HTML output
-
-For human-readable reports that can be easily shared or attached to tickets, use HTML:
-
+HTML report:
 ```sh
 ./nfsdiag --html=report.html 192.168.1.10
 ```
 
-HTML to stdout (diagnostic text is suppressed):
-
+Suppress stdout when writing to file:
 ```sh
-./nfsdiag --html=- 192.168.1.10
+./nfsdiag --quiet --json=report.json 192.168.1.10
 ```
 
-The generated HTML is standalone with inline CSS. Reports are written with mode `0600` and without following symlinks (`O_NOFOLLOW`).
+Reports include tool version, host, timestamp, system info, per-export results (NFS version, latency, throughput, ACLs), global events, and recommendations.
+The JSON schema includes `schema_version`, `timestamp_iso8601`, `duration_sec`,
+event `category`, stable `check_id`, `severity`, and remediation text.
+
+Evidence bundle:
+```sh
+sudo ./nfsdiag --output-dir ./nfsdiag-report 192.168.1.10
+```
+
+This writes JSON, HTML, evidence text and `SHA256SUMS` for the generated files.
+
+Compare two JSON reports:
+```sh
+./nfsdiag diff before.json after.json
+```
+
+---
+
+## Watch mode
+
+Re-run diagnostics every N seconds (Ctrl-C to stop):
+```sh
+sudo ./nfsdiag --watch 60 192.168.1.10
+```
+
+The terminal is cleared between iterations. All pending mounts are cleaned up on SIGINT.
+
+---
+
+## Multi-host batch
+
+Run against a list of hosts:
+```sh
+sudo ./nfsdiag --hosts-file /etc/nfs-servers.txt --json=audit.json
+```
+
+File format: one host per line; lines starting with `#` are comments. Use `--delay-ms` to rate-limit between hosts.
+
+---
+
+## On-failure hook
+
+Execute a script whenever any test fails:
+```sh
+sudo ./nfsdiag --on-fail-exec /usr/local/bin/alert.sh 192.168.1.10
+```
+
+The script receives: `NFSDIAG_HOST`, `NFSDIAG_LEVEL`, `NFSDIAG_FAIL_COUNT`, `NFSDIAG_WARN_COUNT`. It is invoked through a resolved trusted path with a minimal environment, never via a shell.
+
+---
+
+## Config file
+
+Persist options in a key=value file:
+```sh
+sudo ./nfsdiag --config /etc/nfsdiag.conf 192.168.1.10
+```
+
+Example `nfsdiag.conf`:
+```ini
+timeout = 10
+bench_bytes = 8388608
+uid = 1000
+gid = 1000
+```
+
+CLI flags override config-file values.
 
 ---
 
 ## UID/GID and permission tests
 
-Simulate one UID/GID:
-
 ```sh
 sudo ./nfsdiag --uid 1000 --gid 1000 192.168.1.10
-```
-
-Simulate more than one identity:
-
-```sh
 sudo ./nfsdiag --uid 1000 --gid 1000 --uid 65534 --gid 65534 192.168.1.10
-```
-
-Simulate supplemental groups:
-
-```sh
 sudo ./nfsdiag --uid 1000 --gid 1000 --groups 10,20,30 192.168.1.10
 ```
-
-This is useful because many NFS problems are not really NFS protocol problems. Many times it is UID, GID, groups, ACL, or root squash.
 
 ---
 
 ## Performance and stale handle tests
 
-Change write/read test size:
-
 ```sh
 sudo ./nfsdiag --bench-bytes 167772160 192.168.1.10
-```
-
-Change metadata latency iterations:
-
-```sh
 sudo ./nfsdiag --bench-iterations 500 192.168.1.10
-```
-
-Change stale handle loop:
-
-```sh
+sudo ./nfsdiag --bench-type=fio 192.168.1.10       # requires fio installed
 sudo ./nfsdiag --stale-iterations 1000 192.168.1.10
 ```
-
-Run benchmarks using `fio` instead of the internal C loop (requires `fio` installed):
-
-```sh
-sudo ./nfsdiag --bench-type=fio 192.168.1.10
-```
-
-The performance test is only a smoke test. It is not a replacement for full benchmarking, though enabling `fio` provides more accurate storage baseline metrics.
 
 ---
 
 ## Safety options
 
-Timeout for external commands like `mount` and `umount`:
-
 ```sh
 sudo ./nfsdiag --command-timeout 15 192.168.1.10
-```
-
-Delay between testing each export (rate limiting):
-
-```sh
 sudo ./nfsdiag --delay-ms 500 192.168.1.10
+sudo ./nfsdiag --mount-namespace 192.168.1.10      # explicit namespace
+sudo ./nfsdiag --no-mount-namespace 192.168.1.10   # opt out of automatic namespace
+sudo ./nfsdiag --dangerous-fs-tests 192.168.1.10   # enable symlink/hardlink/FIFO/device probes
+sudo ./nfsdiag --allow-risky-mount-options -o exec 192.168.1.10
 ```
-
-Simulate the tool execution without actually mounting or modifying anything:
-
-```sh
-./nfsdiag --dry-run 192.168.1.10
-```
-
-Try to isolate live mounts in a private mount namespace:
-
-```sh
-sudo ./nfsdiag --mount-namespace 192.168.1.10
-```
-
-This needs root or `CAP_SYS_ADMIN`.
 
 ---
 
 ## Network/protocol options
 
-Probe UDP RPC too:
-
 ```sh
 ./nfsdiag --no-mount --udp 192.168.1.10
-```
-
-Force IPv4 direct TCP checks:
-
-```sh
 ./nfsdiag --ipv4-only --no-mount 192.168.1.10
-```
-
-Force IPv6 direct TCP checks:
-
-```sh
 ./nfsdiag --ipv6-only --no-mount nfs-server.example.com
-```
-
-Disable NFSv4 pseudo-root fallback:
-
-```sh
 sudo ./nfsdiag --no-nfs4-discovery 192.168.1.10
 ```
 
-The NFSv4 fallback is useful when the server is NFSv4-only and mountd is not available.
+---
+
+## Shell completions
+
+`sudo make install` already places the bash, zsh, and fish completions. To load them without installing, source them manually:
+```sh
+source completions/nfsdiag.bash          # bash
+fpath=(completions $fpath)               # zsh (add to .zshrc before compinit)
+cp completions/nfsdiag.fish ~/.config/fish/completions/
+```
+
+---
+
+## Man page
+
+```sh
+man docs/nfsdiag.8           # view locally
+```
+
+`sudo make install` installs the man page to the system man path.
 
 ---
 
@@ -476,6 +353,15 @@ Diagnostic options:
       --ipv6-only            Force IPv6 for direct TCP checks
       --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback
       --mount-namespace      Use private mount namespace (needs root/CAP_SYS_ADMIN)
+      --no-mount-namespace   Disable automatic private mount namespace
+      --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes
+      --allow-risky-mount-options
+                              Permit risky mount options such as exec/suid/dev
+      --profile NAME         quick, safe, full, performance, security, readonly
+      --hosts-file FILE      Read one host per line from FILE
+      --watch SEC            Re-run diagnostics every SEC seconds until Ctrl-C
+      --on-fail-exec SCRIPT  Execute SCRIPT via trusted path when any test fails
+      --config FILE          Load options from FILE (key=value) before CLI args
 
 Timeout options:
       --timeout SEC          Network/RPC connect timeout. Default: 5
@@ -492,10 +378,13 @@ Benchmark options:
 Output options:
       --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)
       --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)
+      --output-dir DIR       Write JSON, HTML, evidence and checksums to DIR
+      --output-format FMT    Terminal output format: text (default), table, ndjson, prometheus
       --keep-temp            Keep temp workspace after tests
   -v, --verbose              Show all diagnostic steps
   -q, --quiet                Suppress stdout (combine with --json=FILE or --html=FILE)
   -V, --version              Print version and exit
+      --self-test            Validate local dependencies and helper checks
   -h, --help                 Show this help
 
 Exit codes: 0=pass  1=warn/fail  2=usage/runtime error
@@ -520,83 +409,60 @@ Warnings return `1` because in automation they usually need attention.
 
 The project has Docker fixtures to reproduce bad NFS situations.
 
-List fixtures:
-
 ```sh
-make docker-list
+make docker-build-all          # build all fixture images
+make test-fixtures             # run all fixture tests
+make test-fixture-root-squash  # run one fixture
+make test-fixtures-list        # list available fixtures
 ```
 
-Build all fixtures:
+Some tests need root for real kernel NFS mounts. If the host kernel cannot run NFS inside Docker, those cases are skipped.
 
-```sh
-make docker-build-all
-```
+> **Warning:** fixture configurations use wildcard clients, `insecure`, and `no_root_squash` intentionally.
+> These settings are **test-only** and must **never** be used in production.
 
-Build one fixture:
-
-```sh
-make docker-build-read-only-export
-```
-
-Run automated fixture tests:
-
-```sh
-make test-fixtures
-```
-
-Run only one test:
-
-```sh
-make test-fixture-rpcbind-unreachable
-```
-
-Some tests need root because they do real NFS mounts from the host. If the host cannot run kernel NFS inside Docker, the test runner skips those cases instead of failing everything.
-
-> **Warning:** Docker fixture configurations use wildcard clients, `insecure`, and `no_root_squash`
-> intentionally to simulate test scenarios. These settings are **test-only** and must **never** be
-> used in production. Each `exports.*` file in `dockerfiles/common/` carries this warning.
-
-The current fixture set includes:
-
-- `rpcbind-unreachable`
-- `nfs-port-unreachable`
-- `rpc-map-missing-nfs`
-- `mountd-unavailable`
-- `empty-exports`
-- `mount-denied`
-- `permission-denied`
-- `acl-unsupported`
-- `identity-denied`
-- `read-only-export`
-- `root-squash`
-- `locking-missing`
-- `stale-handle`
-- `slow-performance`
+Available fixtures: `rpcbind-unreachable`, `nfs-port-unreachable`, `rpc-map-missing-nfs`,
+`mountd-unavailable`, `empty-exports`, `mount-denied`, `permission-denied`, `acl-unsupported`,
+`identity-denied`, `read-only-export`, `root-squash`, `locking-missing`, `stale-handle`, `slow-performance`.
 
 ---
 
 ## Security notes
 
-Be careful when running against production exports.
+`nfsdiag` is designed to run as root. Key mitigations:
 
-By default the tool may create hidden `.nfsdoctor-*` files to test write/read behavior. If you do not want this, use:
+- Mount operations run in a private mount namespace to avoid polluting the global namespace.
+- Host, export path and mount options are validated before network or mount activity.
+- Risky mount options require `--allow-risky-mount-options`.
+- Symlink, hardlink, FIFO and device-node probes require `--dangerous-fs-tests`.
+- External commands are resolved from trusted directories and run with a minimal environment.
+- Report files are created with `O_NOFOLLOW` and mode `0600`.
+- Test file paths include cryptographically random bytes (`getrandom()`) to prevent symlink attacks.
+- XDR strings from the server are sanitised for control characters before display.
+- HTML reports include a Content-Security-Policy header; all server-supplied strings are HTML-escaped.
+- `TMPDIR` is validated for ownership and world-writability before use.
+- Child processes that simulate UID/GID clear ambient capabilities before `setuid()`.
+
+To avoid creating test files in exports, use `--read-only`.
+
+---
+
+## Version bumping
 
 ```sh
---read-only
+make bump-version-bugfix   # 0.5.0 → 0.5.1
+make bump-version-minor    # 0.5.0 → 0.6.0
+make bump-version-major    # 0.5.0 → 1.0.0
 ```
 
-Also, UID/GID simulation requires root because the tool uses `setgid`, `setgroups`, and `setuid` in child processes.
+Each target updates `VERSION`, `src/nfsdiag.h`, and all packaging files atomically.
 
 ---
 
 ## Limitations
 
-Some things are impossible to guarantee from the client side:
-
-- `ESTALE` only appears if the handle becomes stale during the test
-- SELinux/AppArmor problems can look only like generic permission denied
+- `ESTALE` only appears if the handle becomes stale during the test window
+- SELinux/AppArmor problems can look like generic permission denied
 - ACL info depends on what the NFS client exposes
-- performance numbers are only smoke-test values
-- Docker NFS fixtures depend on host kernel and Docker privileges
-
-So use this tool as a fast diagnostic helper, not as the only source of truth.
+- Performance numbers are smoke-test values, not full benchmarks
+- Docker fixture tests depend on host kernel and Docker privileges

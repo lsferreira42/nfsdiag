@@ -1,0 +1,28 @@
+pkgname=nfsdiag
+pkgver=0.6.0
+pkgrel=1
+pkgdesc='Client-side NFS diagnostic tool'
+arch=('x86_64' 'aarch64')
+url='https://github.com/lsferreira42/nfsdiag'
+license=('MIT')
+depends=('libtirpc')
+makedepends=('gcc' 'make' 'pkgconf')
+optdepends=('nfs-utils: live NFS mount diagnostics'
+            'fio: optional fio benchmark backend')
+source=("https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "${pkgname}-${pkgver}"
+  make
+}
+
+check() {
+  cd "${pkgname}-${pkgver}"
+  make check
+}
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  make DESTDIR="$pkgdir" PREFIX=/usr install
+}

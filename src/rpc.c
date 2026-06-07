@@ -10,28 +10,56 @@ static bool_t xdr_void_proc(XDR *xdrs, ...) {
     return TRUE;
 }
 
+/* XDR recursion depth counter: prevents stack overflow from a malicious
+ * server sending deeply nested export/group linked lists. */
+static int xdr_depth = 0;
+
 static int xdr_groups(XDR *xdrs, groups *objp) {
-    return xdr_pointer(xdrs, (char **)objp, sizeof(struct groupnode),
-                       (xdrproc_t)xdr_groupnode);
+    if (xdr_depth >= MAX_XDR_DEPTH) return FALSE;
+    xdr_depth++;
+    int r = xdr_pointer(xdrs, (char **)objp, sizeof(struct groupnode),
+                        (xdrproc_t)xdr_groupnode);
+    xdr_depth--;
+    return r;
 }
 
 static int xdr_exports_type(XDR *xdrs, exports *objp) {
-    return xdr_pointer(xdrs, (char **)objp, sizeof(struct exportnode),
-                       (xdrproc_t)xdr_exportnode);
+    if (xdr_depth >= MAX_XDR_DEPTH) return FALSE;
+    xdr_depth++;
+    int r = xdr_pointer(xdrs, (char **)objp, sizeof(struct exportnode),
+                        (xdrproc_t)xdr_exportnode);
+    xdr_depth--;
+    return r;
+}
+
+/* Sanitize a string received from RPC by replacing control characters.
+ * Prevents terminal injection when printed in verbose mode and HTML injection
+ * if the string ever reaches an HTML context without escaping. */
+static void sanitize_xdr_string(char *s) {
+    if (!s) return;
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c < 0x20 && c != '\t' && c != '\n')
+            *s = '?';
+    }
 }
 
 static int xdr_groupnode(XDR *xdrs, struct groupnode *objp) {
-    return xdr_string(xdrs, &objp->gr_name, MAX_XDR_GROUP_NAME) &&
-           xdr_groups(xdrs, &objp->gr_next);
+    int ok = xdr_string(xdrs, &objp->gr_name, MAX_XDR_GROUP_NAME) &&
+             xdr_groups(xdrs, &objp->gr_next);
+    if (ok) sanitize_xdr_string(objp->gr_name);
+    return ok;
 }
 
 static int xdr_exportnode(XDR *xdrs, struct exportnode *objp) {
-    return xdr_string(xdrs, &objp->ex_dir, MAX_XDR_EXPORT_PATH) &&
-           xdr_groups(xdrs, &objp->ex_groups) &&
-           xdr_exports_type(xdrs, &objp->ex_next);
+    int ok = xdr_string(xdrs, &objp->ex_dir, MAX_XDR_EXPORT_PATH) &&
+             xdr_groups(xdrs, &objp->ex_groups) &&
+             xdr_exports_type(xdrs, &objp->ex_next);
+    if (ok) sanitize_xdr_string(objp->ex_dir);
+    return ok;
 }
 
-/* ---- RPC timeout enforcement (P2-12) ---- */
+/* ---- RPC timeout enforcement ---- */
 
 static volatile sig_atomic_t rpc_timeout_fired = 0;
 static void rpc_timeout_handler(int sig) { (void)sig; rpc_timeout_fired = 1; }
@@ -123,7 +151,7 @@ int rpc_null_call(const char *host, unsigned long prog, unsigned long vers,
     return st == RPC_SUCCESS ? 0 : -1;
 }
 
-/* ---- rpcbind query with IPv6 support (item 2) ---- */
+/* ---- rpcbind query with IPv6 support ---- */
 
 /*
  * pmap_getmaps() only works over IPv4. When the user selects IPv6
@@ -236,7 +264,7 @@ check_services:
     }
 }
 
-/* ---- NFS version checks (item 11: adds NFSv4.1/v4.2 detection) ---- */
+/* ---- NFS version checks, including NFSv4.1/v4.2 detection ---- */
 
 void check_nfs_versions(const char *host, const struct rpc_services *svc) {
     if (opt.verbose) printf("\n[+] NFS protocol versions\n");
@@ -297,6 +325,11 @@ void check_mountd_versions(const char *host, const struct rpc_services *svc) {
 
 static void add_export_from_rpc(struct export_list *out, const char *path, groups gr) {
     if (!path || out->count >= MAX_EXPORTS) return;
+    char reason[256];
+    if (validate_export_path(path, reason, sizeof(reason)) != 0) {
+        report_warn("skipping invalid export path from server: %s", reason);
+        return;
+    }
 
     char *path_dup = strdup(path);
     if (!path_dup) return;
@@ -329,8 +362,14 @@ void enumerate_exports(const char *host, struct export_list *out) {
     if (opt.verbose) printf("\n[+] Export enumeration\n");
 
     if (opt.single_export) {
-        out->items[0].path   = strdup(opt.single_export);
-        out->items[0].groups = calloc(1, sizeof(char *));
+        char *path_dup = strdup(opt.single_export);
+        if (!path_dup) {
+            report_fail("out of memory recording --export path");
+            return;
+        }
+        out->items[0].path        = path_dup;
+        out->items[0].groups      = calloc(1, sizeof(char *));
+        out->items[0].group_count = 0;
         out->count = 1;
         report_info("using export supplied by user: %s", opt.single_export);
         return;

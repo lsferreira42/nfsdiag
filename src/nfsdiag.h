@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.4.1"
+#define NFSDIAG_VERSION "0.6.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mount.h>
+#include <sys/random.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/sysmacros.h>
@@ -64,9 +65,12 @@
 #define DEFAULT_COMMAND_TIMEOUT_SEC  30
 #define DEFAULT_BENCH_ITERATIONS     10
 
-/* ---- XDR string limits (P1-2) ---- */
+/* ---- XDR string limits ---- */
 #define MAX_XDR_EXPORT_PATH  4096
 #define MAX_XDR_GROUP_NAME   256
+
+/* ---- XDR depth limit ---- */
+#define MAX_XDR_DEPTH        32
 
 /* ---- limits ---- */
 #define MAX_EXPORTS          512
@@ -78,9 +82,21 @@
 #define MAX_SUPP_GROUPS      64
 #define MAX_EXPORT_REPORTS   512
 #define MAX_NFS_VERSIONS     5
+#define MAX_HOSTS            256
+#define MAX_CHECK_ID         64
+#define MAX_EVENT_CATEGORY   32
+#define MAX_EVENT_REMEDIATION 256
 
 /* ---- NFS mount version strings ---- */
 extern const char *nfs_version_cascade[];
+
+/* ---- output format ---- */
+typedef enum {
+    OUTPUT_FMT_TEXT       = 0,
+    OUTPUT_FMT_TABLE      = 1,
+    OUTPUT_FMT_NDJSON     = 2,
+    OUTPUT_FMT_PROMETHEUS = 3,
+} output_fmt_t;
 
 /* ---- structs ---- */
 
@@ -101,8 +117,13 @@ struct options {
     int udp_checks;
     int nfs4_discovery;
     int mount_namespace;
+    int no_mount_namespace;
+    int allow_risky_mount_options;
+    int dangerous_fs_tests;
+    int self_test;
     int address_family;
     int krb5;
+    int watch_interval;            /* 0 = disabled; >0 = seconds between runs  */
     size_t bench_bytes;
     gid_t supplemental_groups[MAX_SUPP_GROUPS];
     size_t supplemental_group_count;
@@ -112,6 +133,12 @@ struct options {
     const char *bench_type;
     const char *mount_options;
     const char *single_export;
+    const char *hosts_file;        /* path to file with one host per line      */
+    const char *on_fail_exec;      /* script to exec when any test fails       */
+    const char *config_file;       /* path to configuration file               */
+    const char *output_dir;        /* directory for JSON/HTML/evidence bundle  */
+    const char *profile;           /* quick/safe/full/performance/security     */
+    output_fmt_t output_fmt;       /* text / table / ndjson / prometheus       */
     uid_t uids[MAX_IDENTITIES];
     gid_t gids[MAX_IDENTITIES];
     size_t identity_count;
@@ -167,6 +194,9 @@ struct mount_result {
 struct report_event {
     char *level;
     char *message;
+    char check_id[MAX_CHECK_ID];
+    char category[MAX_EVENT_CATEGORY];
+    char remediation[MAX_EVENT_REMEDIATION];
     int  export_idx;   /* -1 = global */
 };
 
@@ -232,10 +262,12 @@ void report_ok(const char *fmt, ...);
 void report_warn(const char *fmt, ...);
 void report_fail(const char *fmt, ...);
 void report_info(const char *fmt, ...);
-void report_progress(int current, int total, const char *msg);
 void enable_report_only_output(void);
+void reset_diagnostic_state(void);
 void write_json_report(const char *host);
 void write_html_report(const char *host);
+void write_table_report(const char *host);
+void write_prometheus_report(const char *host);
 void print_interpretation(void);
 
 /* ---- network.c ---- */
@@ -265,6 +297,7 @@ void    free_exports(struct export_list *list);
 /* ---- mount.c ---- */
 
 int  run_command_capture(char *const argv[], char *output, size_t output_sz);
+int  resolve_command_path(const char *cmd, char *out, size_t out_sz);
 void register_mountpoint(const char *mountpoint);
 void unregister_mountpoint(const char *mountpoint);
 int  make_dir(const char *path, mode_t mode);
@@ -277,9 +310,9 @@ void close_inherited_fds(int keep1, int keep2);
 /* ---- tests.c ---- */
 
 void diagnose_mounted_export(const char *export_path, const char *mountpoint,
-                             int export_idx);
+                             int export_idx, int nfs_version, int nfs_minor);
 
-/* ---- exit codes for identity simulation (item 15) ---- */
+/* ---- exit codes for identity simulation ---- */
 enum child_exit_code {
     CHILD_OK                = 0,
     CHILD_SETGID_FAIL       = 10,
@@ -302,5 +335,18 @@ void report_rpc_stats_diff(const struct rpc_stats *before,
 void parse_mountstats(const char *mountpoint);
 void verify_mount_options(const char *mountpoint, struct export_report *report);
 void collect_system_info(struct system_info *si);
+void check_nfsfs_servers(const char *mountpoint);
+
+/* ---- validation.c ---- */
+
+int validate_host_arg(const char *host, char *reason, size_t reason_sz);
+int validate_export_path(const char *path, char *reason, size_t reason_sz);
+int validate_mount_options(const char *opts, int allow_risky,
+                           char *reason, size_t reason_sz);
+void warn_risky_mount_options(const char *opts);
+const char *event_category_for_message(const char *level, const char *message);
+void event_check_id(char *dst, size_t dst_sz, const char *level,
+                    const char *category, const char *message);
+const char *event_remediation_for(const char *category, const char *message);
 
 #endif /* NFSDIAG_H */

@@ -1,5 +1,5 @@
 Package: nfsdiag
-Version: 0.4.1
+Version: 0.6.0
 Section: utils
 Priority: optional
 Architecture: amd64
@@ -7,6 +7,6 @@ Depends: libtirpc3
 Suggests: nfs-common
 Maintainer: Leandro Ferreira <leandrodsferreira@gmail.com>
 Description: NFS diagnostic tool
- nfs-doctor (nfsdiag) tests NFS servers from the client side.
+ nfsdiag tests NFS servers from the client side.
  It checks network connectivity, rpcbind, NFS protocol versions,
- exports, permissions, UID/GID mapping, and performance.
+ exports, permissions, UID/GID mapping, authentication, and performance.

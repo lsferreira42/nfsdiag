@@ -188,6 +188,7 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 .manpage strong { font-weight: 600; }
 .manpage code { font: inherit; color: var(--fg); }
 .manpage .arg { color: var(--muted); }
+.manpage .byline { color: var(--muted); font-size: 13px; margin-top: 12px; }
 
 /* ── Terminal mock ─────────────────────────────────────────────────────── */
 
