@@ -1,8 +1,8 @@
 class Nfsdiag < Formula
   desc "Client-side NFS diagnostic tool"
   homepage "https://www.nfsdiag.org"
-  url "https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v0.6.0.tar.gz"
-  version "0.6.0"
+  url "https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v0.6.1.tar.gz"
+  version "0.6.1"
   license "MIT"
 
   depends_on "pkg-config" => :build

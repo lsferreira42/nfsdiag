@@ -4,6 +4,7 @@ VERSION := $(shell cat VERSION)
 PKG_NAME := nfsdiag
 DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
 RPM_ARCH := $(shell uname -m)
+BIN_DIST := $(PKG_NAME)-$(VERSION)-linux-$(RPM_ARCH)
 
 CC ?= gcc
 PKG_CONFIG ?= pkg-config
@@ -42,7 +43,7 @@ DOCKER ?= docker
 DOCKERFILES := $(sort $(wildcard dockerfiles/Dockerfile.*))
 DOCKER_TAG_PREFIX ?= nfs-doctor-fixture
 
-.PHONY: all clean distclean rebuild check test-unit sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild check test-unit sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -140,8 +141,9 @@ help:
 	@echo "  deb                  Build Debian package (.deb) in build/"
 	@echo "  rpm                  Build RPM package (.rpm) in build/"
 	@echo "  apk                  Build Alpine package (.apk) via Docker in build/"
-	@echo "  packages             Build all packages"
-	@echo "  release              Tag, push, and create GitHub release with packages"
+	@echo "  binary-dist          Stage a standalone versioned binary in build/"
+	@echo "  packages             Build all packages plus the standalone binary and SBOM"
+	@echo "  release              Tag, push, and create GitHub release with packages, binary, SBOM, and checksums"
 	@echo ""
 	@echo "Version bumping:"
 	@echo "  bump-version-bugfix  Bump patch version (x.y.Z+1)"
@@ -214,7 +216,13 @@ apk:
 	cp build/apk/*.apk build/ || true
 	@echo "APK: build/$(PKG_NAME)-$(VERSION)-r0.apk (approx name)"
 
-packages: $(TARGET) sbom
+# Standalone, versioned, arch-named binary for direct download from releases.
+binary-dist: $(TARGET)
+	mkdir -p build
+	install -m 0755 $(TARGET) build/$(BIN_DIST)
+	@echo "Binary: build/$(BIN_DIST)"
+
+packages: $(TARGET) sbom binary-dist
 	mkdir -p build
 	-$(MAKE) deb
 	-$(MAKE) rpm
@@ -233,8 +241,13 @@ release: packages
 		git tag -a v$(VERSION) -m "Release v$(VERSION)"; \
 		git push origin v$(VERSION); \
 	fi
+	@echo "Generating SHA256SUMS for all artifacts..."
+	@( cd build && rm -f SHA256SUMS; \
+	   for f in *.deb *.rpm *.apk $(BIN_DIST) *.spdx.json; do \
+	       [ -f "$$f" ] && sha256sum "$$f" >> SHA256SUMS; \
+	   done; true )
 	@assets=""; \
-	for f in build/*.deb build/*.rpm build/*.apk; do \
+	for f in build/*.deb build/*.rpm build/*.apk build/$(BIN_DIST) build/*.spdx.json build/SHA256SUMS; do \
 		[ -f "$$f" ] && assets="$$assets $$f"; \
 	done; \
 	if [ -n "$$assets" ]; then \
@@ -244,7 +257,7 @@ release: packages
 		    --notes "Release v$(VERSION)" 2>/dev/null || \
 		gh release upload v$(VERSION) $$assets --clobber; \
 	else \
-		echo "No packages found; creating empty release."; \
+		echo "No artifacts found; creating empty release."; \
 		gh release create v$(VERSION) \
 		    --title "v$(VERSION)" \
 		    --notes "Release v$(VERSION)" 2>/dev/null || true; \

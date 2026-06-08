@@ -1,5 +1,5 @@
 Name:           nfsdiag
-Version:        0.6.0
+Version:        0.6.1
 Release:        1%{?dist}
 Summary:        NFS diagnostic tool
 
@@ -23,6 +23,8 @@ install -m 755 %{srcdir}/nfsdiag %{buildroot}/usr/bin/nfsdiag
 /usr/bin/nfsdiag
 
 %changelog
+* Sun Jun 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.6.1-1
+- make release now publishes the standalone binary, SBOM, and checksums alongside packages
 * Sun Jun 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.6.0-1
 - Fixed delegation/server-info detection, per-export status, Prometheus output, and fs-test timeouts
 * Sun Jun 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.5.0-1
