@@ -292,7 +292,18 @@ bump-packaging:
 	sed -i "s/#define NFSDIAG_VERSION \"[^\"]*\"/#define NFSDIAG_VERSION \"$$ver\"/" src/nfsdiag.h; \
 	sed -i "s/^Version: .*/Version: $$ver/" packaging/nfsdiag.control; \
 	sed -i "s/^Version:[[:space:]]*.*/Version:        $$ver/" packaging/nfsdiag.spec; \
-	sed -i "s/^ARG VERSION=.*/ARG VERSION=$$ver/" packaging/Dockerfile.apk
+	sed -i "s/^ARG VERSION=.*/ARG VERSION=$$ver/" packaging/Dockerfile.apk; \
+	sed -i "s/^pkgver=.*/pkgver=$$ver/" packaging/aur/PKGBUILD; \
+	sed -i "s/version = \"[^\"]*\";/version = \"$$ver\";/" packaging/nix/flake.nix; \
+	sed -i "s|/v[0-9][0-9.]*\.tar\.gz|/v$$ver.tar.gz|; s/version \"[^\"]*\"/version \"$$ver\"/" packaging/homebrew/nfsdiag.rb; \
+	sed -i "s/\"nfsdiag [^\"]*\"/\"nfsdiag $$ver\"/" docs/nfsdiag.8; \
+	sed -i "s|Current version: <strong>[^<]*</strong>|Current version: <strong>$$ver</strong>|" website/index.html; \
+	sed -i "s|<strong>nfsdiag</strong> v[0-9][0-9.]*|<strong>nfsdiag</strong> v$$ver|" website/docs.html; \
+	sed -i "s/nfsdiag [0-9][0-9.]*: /nfsdiag $$ver: /g" website/index.html website/docs.html; \
+	sed -i "s|nfsdiag <strong>v[^<]*</strong>|nfsdiag <strong>v$$ver</strong>|g" website/index.html website/docs.html website/author.html; \
+	sed -i "s|\(NFSDIAG_VERSION.*\)\"[0-9][^\"]*\"|\1\"$$ver\"|" website/docs.html; \
+	sed -i "s/^Current version: \*\*[^*]*\*\*/Current version: **$$ver**/" CLAUDE.md; \
+	sed -i "s/NFSDIAG_VERSION \"[^\"]*\"/NFSDIAG_VERSION \"$$ver\"/" CLAUDE.md
 
 bump-version-bugfix:
 	@awk -F. '{print $$1"."$$2"."$$3+1}' VERSION > VERSION.tmp && mv VERSION.tmp VERSION
