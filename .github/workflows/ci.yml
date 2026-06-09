@@ -73,15 +73,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install cppcheck
-        run: sudo apt-get update -q && sudo apt-get install -y -q cppcheck
+        run: sudo apt-get update -q && sudo apt-get install -y -q cppcheck make pkg-config libtirpc-dev
 
       - name: Run cppcheck
-        run: |
-          cppcheck --enable=all --error-exitcode=1 \
-            --suppress=missingIncludeSystem \
-            --suppress=unusedFunction \
-            -I src \
-            src/
+        run: make cppcheck
 
   # ---- static analysis: clang-tidy ----
   clang-tidy:

@@ -6,6 +6,9 @@ const char *proto_name(unsigned long proto) {
     return "unknown";
 }
 
+/* Exposed via nfsdiag.h and called from other translation units. cppcheck's
+ * per-file analysis cannot see those callers, so it raises a false-positive
+ * staticFunction (static-linkage) suggestion here. */
 int tcp_connect_timeout(const char *host, int port, int timeout_sec) {
     struct addrinfo hints;
     struct addrinfo *res = NULL;

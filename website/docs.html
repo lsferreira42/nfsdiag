@@ -154,7 +154,7 @@
               <td class="flag">--read-only</td>
               <td class="arg">—</td>
               <td class="def">—</td>
-              <td>Do not create or write any test files on the export. Leaves no <code class="inline">.nfsdoctor-*</code> artefacts.</td>
+              <td>Do not create or write any test files on the export. Leaves no <code class="inline">.nfsdiag-*</code> artefacts.</td>
             </tr>
             <tr>
               <td class="flag">--uid</td>
@@ -990,7 +990,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
                 Report files opened with
                 <code class="inline">O_WRONLY|O_CREAT|O_TRUNC|O_NOFOLLOW|0600</code>
                 — prevents symlink attacks when running as root. Test files use
-                hidden <code class="inline">.nfsdoctor-*</code> names inside a
+                hidden <code class="inline">.nfsdiag-*</code> names inside a
                 <code class="inline">mktemp</code>-created workspace.
               </td>
             </tr>
@@ -1099,7 +1099,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
 
         <div class="note">
           <strong>Production use:</strong> by default nfsdiag creates hidden
-          <code class="inline">.nfsdoctor-*</code> files to test write/read behaviour.
+          <code class="inline">.nfsdiag-*</code> files to test write/read behaviour.
           Use <code class="inline">--read-only</code> to leave the export untouched, or
           <code class="inline">--dry-run</code> to skip mounts entirely.
           UID/GID simulation requires root because it uses
@@ -1359,7 +1359,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
         </ul>
 
         <p class="subsec">v0.2.0</p>
-        <p class="lede">Security fixes, behavioural fixes, and robustness improvements.</p>
+        <p class="lede">Security fixes, behavioural fixes, and reliability improvements.</p>
 
         <p class="lede" style="color: var(--muted);">Security &amp; crash fixes</p>
         <ul class="fixtures">
@@ -1381,7 +1381,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
           <li>NFS minor version (4.1, 4.2) tracked in JSON and HTML reports</li>
         </ul>
 
-        <p class="lede" style="color: var(--muted);">Robustness</p>
+        <p class="lede" style="color: var(--muted);">Reliability fixes</p>
         <ul class="fixtures">
           <li>Pipe drain continues discarding when output buffer is full — no stall-until-timeout</li>
           <li><code class="inline">dup2()</code> return checked in child processes</li>

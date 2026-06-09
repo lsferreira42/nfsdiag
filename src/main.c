@@ -106,7 +106,7 @@ static int parse_groups_arg(const char *s) {
     char *copy = strdup(s);
     if (!copy) return -1;
     char *save = NULL;
-    for (char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+    for (const char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
         unsigned long value;
         if (parse_ulong_arg(tok, &value) != 0 || opt.supplemental_group_count >= MAX_SUPP_GROUPS) {
             free(copy);
@@ -129,8 +129,11 @@ static void add_identity(uid_t uid, gid_t gid) {
 }
 
 static gid_t default_gid_for_uid(uid_t uid) {
-    struct passwd *pw = getpwuid(uid);
-    if (pw) return pw->pw_gid;
+    struct passwd pwd;
+    struct passwd *pw = NULL;
+    char buf[4096];
+    if (getpwuid_r(uid, &pwd, buf, sizeof(buf), &pw) == 0 && pw)
+        return pw->pw_gid;
     return getgid();
 }
 
@@ -178,7 +181,8 @@ static void load_config_file(const char *path) {
         char *eq = strchr(p, '=');
         if (!eq) continue;
         *eq = '\0';
-        char *key = p, *val = eq + 1;
+        char *key = p;
+        const char *val = eq + 1;
         while (*key == ' ' || *key == '\t') key++;
         char *kend = key + strlen(key) - 1;
         while (kend > key && (*kend == ' ' || *kend == '\t')) *kend-- = '\0';
@@ -352,7 +356,7 @@ static int extract_summary_value(const char *path, const char *key, long *out) {
     buf[n] = '\0';
     char needle[64];
     snprintf(needle, sizeof(needle), "\"%s\"", key);
-    char *p = strstr(buf, needle);
+    const char *p = strstr(buf, needle);
     if (!p) return -1;
     p = strchr(p, ':');
     if (!p) return -1;
@@ -539,7 +543,7 @@ static int run_diagnostics_for_host(const char *host) {
 
     if (opt.verbose) printf("\n[+] Temporary mount workspace\n");
     const char *tmpdir = validated_tmpdir();
-    snprintf(cleanup_base, sizeof(cleanup_base), "%s/nfsdoctor-XXXXXX", tmpdir);
+    snprintf(cleanup_base, sizeof(cleanup_base), "%s/nfsdiag-XXXXXX", tmpdir);
     if (!mkdtemp(cleanup_base)) {
         report_fail("mkdtemp failed under %s: %s", tmpdir, strerror(errno));
         write_json_report(host);
@@ -563,8 +567,13 @@ static int run_diagnostics_for_host(const char *host) {
     capture_rpc_stats(&rpc_before);
 
     for (size_t i = 0; i < exports_found.count; i++) {
-        if (i > 0 && opt.delay_ms > 0)
-            usleep((useconds_t)opt.delay_ms * 1000);
+        if (i > 0 && opt.delay_ms > 0) {
+            struct timespec delay = {
+                .tv_sec = opt.delay_ms / 1000,
+                .tv_nsec = (long)(opt.delay_ms % 1000) * 1000000L
+            };
+            nanosleep(&delay, NULL);
+        }
         if (received_signal) {
             report_warn("received signal %d, stopping further mount diagnostics", received_signal);
             break;

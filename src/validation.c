@@ -75,7 +75,7 @@ int validate_mount_options(const char *opts, int allow_risky,
     char copy[2048];
     snprintf(copy, sizeof(copy), "%s", opts);
     char *save = NULL;
-    for (char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+    for (const char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
         if (!tok[0]) {
             set_reason(reason, reason_sz, "mount options contain an empty token");
             return -1;
@@ -96,7 +96,7 @@ void warn_risky_mount_options(const char *opts) {
     char copy[2048];
     snprintf(copy, sizeof(copy), "%s", opts);
     char *save = NULL;
-    for (char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
+    for (const char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
         if (token_equals(tok, "soft"))
             report_warn("mount option 'soft' can turn server stalls into application-visible I/O errors");
         else if (token_equals(tok, "nolock"))

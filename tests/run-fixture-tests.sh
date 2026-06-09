@@ -2,7 +2,7 @@
 set -eu
 
 DOCKER=${DOCKER:-docker}
-TAG_PREFIX=${DOCKER_TAG_PREFIX:-nfs-doctor-fixture}
+TAG_PREFIX=${DOCKER_TAG_PREFIX:-nfsdiag-fixture}
 NFS_DIAG=${NFS_DIAG:-./nfsdiag}
 TEST_TIMEOUT=${TEST_TIMEOUT:-120}
 
@@ -83,8 +83,8 @@ for fixture in ${FIXTURES}; do
     fi
 
     image="${TAG_PREFIX}:${fixture}"
-    name="nfsdoctor-test-${fixture}-$$"
-    output=$(mktemp /tmp/nfsdoctor-test-XXXXXX.out)
+    name="nfsdiag-test-${fixture}-$$"
+    output=$(mktemp /tmp/nfsdiag-test-XXXXXX.out)
 
     echo "[TEST] ${fixture}"
     build_fixture "$fixture"

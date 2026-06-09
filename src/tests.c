@@ -24,7 +24,7 @@ static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx
     uint32_t rnd = 0;
     if (getrandom(&rnd, sizeof(rnd), 0) < 0)
         rnd = (uint32_t)(time(NULL) ^ getpid());
-    snprintf(dst, sz, "%s/.nfsdoctor-%ld-%08x-%s", mp, (long)getpid(), rnd, sfx);
+    snprintf(dst, sz, "%s/.nfsdiag-%ld-%08x-%s", mp, (long)getpid(), rnd, sfx);
 }
 
 static void cleanup_test_path(const char *path) {
@@ -129,7 +129,7 @@ static void test_metadata_latency(const char *mp, struct export_report *rpt) {
     int completed = 0;
     for (int i = 0; i < opt.bench_iterations && !fs_timeout_fired; i++) {
         char path[4096], renamed[8192];
-        snprintf(path, sizeof(path), "%s/.nfsdoctor-meta-%ld-%d", mp, (long)getpid(), i);
+        snprintf(path, sizeof(path), "%s/.nfsdiag-meta-%ld-%d", mp, (long)getpid(), i);
         snprintf(renamed, sizeof(renamed), "%s.renamed", path);
         struct timespec a, b;
         clock_gettime(CLOCK_MONOTONIC, &a);
@@ -148,19 +148,19 @@ static void test_metadata_latency(const char *mp, struct export_report *rpt) {
         qsort(samples, (size_t)completed, sizeof(double), cmp_double);
         
         double p50, p95, p99;
-        double ps[] = {0.50, 0.95, 0.99};
+        const double ps[] = {0.50, 0.95, 0.99};
         double *res[] = {&p50, &p95, &p99};
-        
+
         for (int p = 0; p < 3; p++) {
             if (completed == 1) {
                 *res[p] = samples[0];
             } else {
                 double idx = (completed - 1) * ps[p];
                 int i = (int)idx;
-                double frac = idx - i;
-                if (i + 1 < completed)
+                if (i + 1 < completed) {
+                    double frac = idx - i;
                     *res[p] = samples[i] + frac * (samples[i + 1] - samples[i]);
-                else
+                } else
                     *res[p] = samples[i];
             }
         }
@@ -331,7 +331,17 @@ static void test_root_squash(const char *mp, struct export_report *rpt) {
                 report_warn("root_squash practical signal: file created by root is owned by uid %lu gid %lu (root is likely squashed)",
                             (unsigned long)st.st_uid, (unsigned long)st.st_gid);
                 rpt->root_squash_detected = 1;
-                add_recommendation("root_squash appears active: run tests as the application UID/GID with --uid/--gid to validate real access.");
+                int has_nonroot_identity = 0;
+                for (size_t i = 0; i < opt.identity_count; i++) {
+                    if (opt.uids[i] != 0) { has_nonroot_identity = 1; break; }
+                }
+                if (opt.identity_count == 0) {
+                    add_recommendation("root_squash appears active: run tests as the application UID/GID with --uid/--gid to validate real access.");
+                } else if (!has_nonroot_identity) {
+                    add_recommendation("root_squash appears active and the only simulated identity is uid 0; root is exactly the identity that gets squashed. Re-run with the application's non-root --uid/--gid to validate real access.");
+                } else {
+                    report_info("root_squash appears active; real access is being validated via the non-root --uid/--gid identity simulation");
+                }
             }
         } else {
             report_info("root_squash practical test requires root; current euid=%lu", (unsigned long)geteuid());
@@ -541,7 +551,11 @@ static void test_identity_simulation(const char *mp) {
     size_t saved = opt.identity_count;
     if (opt.identity_count == 0) {
         opt.uids[0] = geteuid(); opt.gids[0] = getegid(); opt.identity_count = 1;
-        struct passwd *nobody = getpwnam("nobody");
+        struct passwd pwd;
+        struct passwd *nobody = NULL;
+        char nbuf[4096];
+        if (getpwnam_r("nobody", &pwd, nbuf, sizeof(nbuf), &nobody) != 0)
+            nobody = NULL;
         if (geteuid() == 0 && nobody) { opt.uids[1] = nobody->pw_uid; opt.gids[1] = nobody->pw_gid; opt.identity_count = 2; }
     }
     if (geteuid() != 0) report_info("not running as root; UID/GID simulation is limited to current identity only");
@@ -688,7 +702,7 @@ static void test_nfsv4_delegation(const char *mp, int nfs_version) {
             int matched = 0;
             if (mop) {
                 char *s = mop + 12;
-                char *e = strstr(s, " with fstype");
+                const char *e = strstr(s, " with fstype");
                 if (e) {
                     size_t len = (size_t)(e - s);
                     char dev_mp[4096] = {0};
@@ -702,7 +716,7 @@ static void test_nfsv4_delegation(const char *mp, int nfs_version) {
             continue;
         }
         if (!in_section) continue;
-        char *t = line;
+        const char *t = line;
         while (*t == ' ' || *t == '\t') t++;
         if (strncmp(t, "DELEGRETURN:", 12) == 0) {
             sscanf(t + 12, " %lu", &deleg_ops);

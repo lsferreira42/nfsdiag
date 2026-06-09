@@ -82,6 +82,9 @@ static void disarm_rpc_timeout(const struct sigaction *old) {
 
 /* ---- RPC helpers ---- */
 
+/* The helpers below are exposed via nfsdiag.h and called from other translation
+ * units. cppcheck's per-file analysis cannot see those callers, so it raises a
+ * false-positive staticFunction (static-linkage) suggestion for each of them. */
 const char *rpc_program_name(unsigned long prog) {
     switch (prog) {
     case NFS_PROGRAM:   return "nfs";
@@ -170,8 +173,11 @@ static void probe_rpc_programs(const char *host, struct rpc_services *svc) {
         for (int v = 1; v <= probes[p].max_vers; v++) {
             const char *protos[] = {"tcp", opt.udp_checks ? "udp" : NULL};
             for (int pi = 0; protos[pi]; pi++) {
+                struct sigaction old;
+                arm_rpc_timeout(&old);
                 CLIENT *cl = clnt_create(host, probes[p].prog, (unsigned long)v,
                                          protos[pi]);
+                disarm_rpc_timeout(&old);
                 if (cl) {
                     unsigned long prot = (strcmp(protos[pi], "tcp") == 0)
                                              ? IPPROTO_TCP : IPPROTO_UDP;

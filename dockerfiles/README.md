@@ -1,8 +1,8 @@
-# Docker fixtures for nfs-doctor
+# Docker fixtures for nfsdiag
 
 This folder has Dockerfiles used to create bad NFS situations on purpose.
 
-The idea is to test if `nfs-doctor` can see the problem and print the expected warning or failure. It is useful while developing the tool, because NFS has many boring edge cases and it is easy to break one diagnostic when changing another.
+The idea is to test if `nfsdiag` can see the problem and print the expected warning or failure. It is useful while developing the tool, because NFS has many boring edge cases and it is easy to break one diagnostic when changing another.
 
 Most of these containers are not production NFS servers. They are only test fixtures.
 
@@ -47,13 +47,13 @@ make docker-build-read-only-export
 The image tag format is:
 
 ```text
-nfs-doctor-fixture:<fixture-name>
+nfsdiag-fixture:<fixture-name>
 ```
 
 Example:
 
 ```text
-nfs-doctor-fixture:read-only-export
+nfsdiag-fixture:read-only-export
 ```
 
 ---
@@ -102,7 +102,7 @@ If the machine cannot run the NFS server fixture, the test is skipped.
 Example with read-only export:
 
 ```sh
-docker run --rm -d --name nfs-fixture --privileged nfs-doctor-fixture:read-only-export
+docker run --rm -d --name nfs-fixture --privileged nfsdiag-fixture:read-only-export
 ```
 
 Get the container IP:

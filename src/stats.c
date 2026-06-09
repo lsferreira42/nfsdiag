@@ -231,7 +231,7 @@ void parse_mountstats(const char *mountpoint) {
             int matched = 0;
             if (mop) {
                 char *mp_start = mop + 12;
-                char *mp_end = strstr(mp_start, " with fstype");
+                const char *mp_end = strstr(mp_start, " with fstype");
                 if (mp_end) {
                     size_t mp_len = (size_t)(mp_end - mp_start);
                     char dev_mp[4096] = {0};
@@ -254,7 +254,7 @@ void parse_mountstats(const char *mountpoint) {
         if (!in_section) continue;
 
         /* parse per-operation stats */
-        char *trimmed = line;
+        const char *trimmed = line;
         while (*trimmed == ' ' || *trimmed == '\t') trimmed++;
 
         /* look for key operations: READ, WRITE, GETATTR, LOOKUP, ACCESS */
@@ -285,7 +285,7 @@ void parse_mountstats(const char *mountpoint) {
                             strcmp(opname, "GETATTR") == 0 ||
                             strcmp(opname, "LOOKUP") == 0 ||
                             strcmp(opname, "ACCESS") == 0)) {
-                double avg_rtt = ops > 0 ? (double)rtt_us / (double)ops / 1000.0 : 0;
+                double avg_rtt = (double)rtt_us / (double)ops / 1000.0;
                 report_info("mountstats %s ops=%lu trans=%lu timeouts=%lu avg_rtt=%.2fms",
                            opname, ops, trans, timeouts, avg_rtt);
                 if (timeouts > 0) {
@@ -323,7 +323,7 @@ void verify_mount_options(const char *mountpoint, struct export_report *report) 
         if (strcmp(mp, mountpoint) != 0) continue;
 
         /* find the " - " separator for fs type and super options */
-        char *sep = strstr(line, " - ");
+        const char *sep = strstr(line, " - ");
         if (!sep) continue;
         if (sscanf(sep + 3, "%255s %4095s %2047s", fstype, source, super_opts) < 2)
             continue;
@@ -341,7 +341,7 @@ void verify_mount_options(const char *mountpoint, struct export_report *report) 
         snprintf(opt_copy, sizeof(opt_copy), "%s", combined);
         char *save_opt = NULL;
         int has_hard = 0, has_soft = 0, has_noatime = 0, has_nconnect = 0;
-        for (char *tok = strtok_r(opt_copy, ",", &save_opt); tok;
+        for (const char *tok = strtok_r(opt_copy, ",", &save_opt); tok;
              tok = strtok_r(NULL, ",", &save_opt)) {
             if (strcmp(tok, "hard")    == 0) has_hard    = 1;
             if (strcmp(tok, "soft")    == 0) has_soft    = 1;

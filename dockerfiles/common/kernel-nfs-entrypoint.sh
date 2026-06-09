@@ -1,5 +1,5 @@
 #!/bin/sh
-# TEST-ONLY entrypoint for nfs-doctor fixture containers.
+# TEST-ONLY entrypoint for nfsdiag fixture containers.
 # This script uses insecure NFS export options (wildcard, insecure, no_root_squash).
 # NEVER use this configuration or these exports in a production environment.
 set -eu
@@ -17,7 +17,7 @@ if [ -n "${EXPORT_SUBDIR:-}" ]; then
     fixture_target="/export/${EXPORT_SUBDIR}"
 fi
 mkdir -p "${fixture_target}" 2>/dev/null || true
-printf '%s\n' "${EXPORT_MARKER:-nfs-doctor-fixture}" > "${fixture_target}/README.txt" 2>/dev/null || true
+printf '%s\n' "${EXPORT_MARKER:-nfsdiag-fixture}" > "${fixture_target}/README.txt" 2>/dev/null || true
 chown "${EXPORT_OWNER:-root:root}" "${fixture_target}" 2>/dev/null || true
 chmod "${EXPORT_MODE:-0777}" "${fixture_target}" 2>/dev/null || true
 

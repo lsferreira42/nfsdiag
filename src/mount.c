@@ -13,7 +13,7 @@ void close_inherited_fds(int keep1, int keep2) {
     DIR *d = opendir("/proc/self/fd");
     if (d) {
         int dfd = dirfd(d);
-        struct dirent *ent;
+        const struct dirent *ent;
         while ((ent = readdir(d)) != NULL) {
             if (ent->d_name[0] == '.') continue;
             int fd = atoi(ent->d_name);
@@ -99,10 +99,9 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
 
     size_t used = 0;
     int status = 0;
-    int child_done = 0;
     time_t deadline = time(NULL) + opt.command_timeout_sec;
 
-    while (!child_done) {
+    for (;;) {
         ssize_t n;
         do {
             if (used < output_sz - 1) {
@@ -116,12 +115,13 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
         if (n < 0 && errno != EAGAIN && errno != EINTR) break;
 
         pid_t wr = waitpid(pid, &status, WNOHANG);
-        if (wr == pid) { child_done = 1; break; }
+        if (wr == pid) break;
         if (wr < 0 && errno != EINTR) break;
 
         if (time(NULL) >= deadline) {
             kill(-pid, SIGTERM);
-            usleep(200000);
+            struct timespec grace = { .tv_sec = 0, .tv_nsec = 200000000L };
+            nanosleep(&grace, NULL);
             kill(-pid, SIGKILL);
             while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
             if (output_sz) {
@@ -159,6 +159,9 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
 
 /* ---- mountpoint tracking ---- */
 
+/* Exposed via nfsdiag.h and called from other translation units. cppcheck's
+ * per-file analysis cannot see those callers, so it raises a false-positive
+ * staticFunction (static-linkage) suggestion here. */
 void register_mountpoint(const char *mountpoint) {
     if (active_mountpoint_count >= MAX_MOUNTPOINTS) return;
     snprintf(active_mountpoints[active_mountpoint_count],
@@ -167,6 +170,9 @@ void register_mountpoint(const char *mountpoint) {
     active_mountpoint_count++;
 }
 
+/* Exposed via nfsdiag.h and called from other translation units. cppcheck's
+ * per-file analysis cannot see those callers, so it raises a false-positive
+ * staticFunction (static-linkage) suggestion here. */
 void unregister_mountpoint(const char *mountpoint) {
     for (size_t i = 0; i < active_mountpoint_count; i++) {
         if (strcmp(active_mountpoints[i], mountpoint) == 0) {

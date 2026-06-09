@@ -13,5 +13,5 @@ ENV EXPORT_MARKER=read-only-fixture
 
 EXPOSE 111/tcp 111/udp 2049/tcp 2049/udp
 
-# The export is explicitly read-only, so nfs-doctor write/create tests should warn/fail.
+# The export is explicitly read-only, so nfsdiag write/create tests should warn/fail.
 ENTRYPOINT ["/usr/local/bin/kernel-nfs-entrypoint.sh"]

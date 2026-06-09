@@ -5,5 +5,5 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # Intentionally exposes no rpcbind and no NFS service.
-# Expected nfs-doctor result: TCP/111 and TCP/2049 connectivity failures.
+# Expected nfsdiag result: TCP/111 and TCP/2049 connectivity failures.
 CMD ["sleep", "infinity"]

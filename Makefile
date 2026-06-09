@@ -41,9 +41,24 @@ LDLIBS += $(TIRPC_LIBS)
 
 DOCKER ?= docker
 DOCKERFILES := $(sort $(wildcard dockerfiles/Dockerfile.*))
-DOCKER_TAG_PREFIX ?= nfs-doctor-fixture
+DOCKER_TAG_PREFIX ?= nfsdiag-fixture
 
-.PHONY: all clean distclean rebuild check test-unit sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+# Static analysis: cppcheck. Suppressions cover only false positives:
+#   *:*/tirpc/*  -> findings inside the libtirpc system headers (not our code)
+#   staticFunction -> functions declared in nfsdiag.h and used cross-TU; --force
+#                     analyses each .c in isolation and cannot see the usage
+#   normalCheckLevelMaxBranches / checkersReport -> informational notes only
+CPPCHECK ?= cppcheck
+CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
+	--platform=unix64 --force --inline-suppr --error-exitcode=1 \
+	--suppress=missingIncludeSystem \
+	--suppress=normalCheckLevelMaxBranches \
+	--suppress=checkersReport \
+	--suppress='*:*/tirpc/*' \
+	--suppress=staticFunction \
+	-D_GNU_SOURCE $(TIRPC_CFLAGS)
+
+.PHONY: all clean distclean rebuild check test-unit cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -64,6 +79,9 @@ test-unit:
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c -o build-unit-tests $(LDLIBS)
 	./build-unit-tests
 	rm -f build-unit-tests
+
+cppcheck:
+	$(CPPCHECK) $(CPPCHECK_FLAGS) $(SRCDIR)
 
 sbom:
 	mkdir -p build
@@ -125,6 +143,7 @@ help:
 	@echo "  rebuild              Clean and build"
 	@echo "  check                Run a minimal CLI self-check"
 	@echo "  test-unit            Run pure helper unit tests"
+	@echo "  cppcheck             Run cppcheck static analysis (fails on findings)"
 	@echo "  sbom                 Generate a minimal SPDX-style SBOM in build/"
 	@echo "  install              Install binary, man page, and shell completions to DESTDIR/PREFIX, default $(PREFIX)"
 	@echo "  uninstall            Remove installed files"

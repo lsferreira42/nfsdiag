@@ -4,7 +4,7 @@ import socket
 import threading
 
 port = int(os.environ.get("LISTEN_PORT", "2049"))
-message = os.environ.get("LISTEN_MESSAGE", "nfs-doctor dummy listener\n").encode()
+message = os.environ.get("LISTEN_MESSAGE", "nfsdiag dummy listener\n").encode()
 
 sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

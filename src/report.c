@@ -49,6 +49,9 @@ void reset_diagnostic_state(void) {
     }
 }
 
+/* Exposed via nfsdiag.h and called from other translation units. cppcheck's
+ * per-file analysis cannot see those callers, so it raises a false-positive
+ * staticFunction (static-linkage) suggestion here. */
 void add_event(const char *level, const char *message) {
     if (event_count >= event_capacity) {
         size_t new_cap = event_capacity == 0 ? 64 : event_capacity * 2;
@@ -322,6 +325,17 @@ static void json_write_exports(FILE *f) {
     fprintf(f, "  ],\n");
 }
 
+static FILE *open_saved_stdout_stream(void) {
+    int dupfd = dup(saved_stdout_fd);
+    if (dupfd < 0) return NULL;
+    FILE *f = fdopen(dupfd, "w");
+    if (!f) {
+        int orphan = dupfd;
+        close(orphan);
+    }
+    return f;
+}
+
 void write_json_report(const char *host) {
     if (!opt.json) return;
     FILE *f = NULL;
@@ -336,10 +350,8 @@ void write_json_report(const char *host) {
         f = fdopen(fd, "w");
         if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
-        int dupfd = dup(saved_stdout_fd);
-        if (dupfd < 0) return;
-        f = fdopen(dupfd, "w");
-        if (!f) { close(dupfd); return; }
+        f = open_saved_stdout_stream();
+        if (!f) return;
     } else {
         f = stdout;
     }
@@ -439,10 +451,8 @@ void write_html_report(const char *host) {
         f = fdopen(fd, "w");
         if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
-        int dupfd = dup(saved_stdout_fd);
-        if (dupfd < 0) return;
-        f = fdopen(dupfd, "w");
-        if (!f) { close(dupfd); return; }
+        f = open_saved_stdout_stream();
+        if (!f) return;
     } else {
         f = stdout;
     }
@@ -481,7 +491,7 @@ void write_html_report(const char *host) {
         fprintf(f, "<div class='card'><h2>Exports</h2>\n");
         fprintf(f, "<table><thead><tr><th>Export</th><th>NFS</th><th>Write MiB/s</th><th>Read MiB/s</th><th>Metadata p95</th><th>Status</th></tr></thead><tbody>\n");
         for (size_t i = 0; i < export_report_count; i++) {
-            struct export_report *r = &export_reports[i];
+            const struct export_report *r = &export_reports[i];
             fprintf(f, "<tr><td>");
             html_escape(f, r->path);
             fprintf(f, "</td><td>");
@@ -592,7 +602,7 @@ void write_table_report(const char *host) {
     const char *MM = "\xe2\x95\xac";
 
     /* Column widths: export, nfs_ver, write, read, meta_p95, locks, status */
-    int cw[] = {32, 7, 10, 10, 10, 6, 8};
+    const int cw[] = {32, 7, 10, 10, 10, 6, 8};
     int ncols = 7;
     int total_width = 0;
     for (int i = 0; i < ncols; i++) total_width += cw[i] + 3;
@@ -737,7 +747,7 @@ void write_prometheus_report(const char *host) {
             fprintf(f, "# HELP %s %s\n", metrics[m].name, metrics[m].help);
             fprintf(f, "# TYPE %s gauge\n", metrics[m].name);
             for (size_t i = 0; i < export_report_count; i++) {
-                struct export_report *r = &export_reports[i];
+                const struct export_report *r = &export_reports[i];
                 if (!r->tested) continue;
                 fprintf(f, "%s{host=\"", metrics[m].name);
                 prom_label_escape(f, host);
