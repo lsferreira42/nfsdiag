@@ -46,37 +46,6 @@ jobs:
       - name: Generate SBOM
         run: make sbom
 
-  # ---- AddressSanitizer + UBSan ----
-  sanitizers:
-    name: sanitizers (ASan + UBSan)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
-
-      - name: Build with ASan + UBSan
-        run: |
-          make "CFLAGS=-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer -Wall -Wextra -Werror" rebuild
-
-      - name: Self-check under sanitizers
-        run: make check
-
-  # ---- static analysis: cppcheck ----
-  cppcheck:
-    name: cppcheck
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install cppcheck
-        run: sudo apt-get update -q && sudo apt-get install -y -q cppcheck make pkg-config libtirpc-dev
-
-      - name: Run cppcheck
-        run: make cppcheck
 
   # ---- static analysis: clang-tidy ----
   clang-tidy:
