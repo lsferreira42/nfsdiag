@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.7.0"
+#define NFSDIAG_VERSION "0.9.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -69,11 +69,14 @@
 #define MAX_XDR_EXPORT_PATH  4096
 #define MAX_XDR_GROUP_NAME   256
 
-/* ---- XDR depth limit ---- */
-#define MAX_XDR_DEPTH        32
+/* ---- XDR list decode limits (iterative decoder; bounds allocations) ---- */
+#define MAX_XDR_EXPORT_NODES 2048
+#define MAX_XDR_GROUP_NODES  8192
 
 /* ---- limits ---- */
 #define MAX_EXPORTS          512
+#define MAX_CLI_EXPORTS      64
+#define MAX_PARALLEL         32
 #define MAX_IDENTITIES       32
 #define CMD_OUTPUT_LIMIT     8192
 #define MAX_EVENTS           4096
@@ -96,6 +99,7 @@ typedef enum {
     OUTPUT_FMT_TABLE      = 1,
     OUTPUT_FMT_NDJSON     = 2,
     OUTPUT_FMT_PROMETHEUS = 3,
+    OUTPUT_FMT_JUNIT      = 4,
 } output_fmt_t;
 
 /* ---- structs ---- */
@@ -124,6 +128,10 @@ struct options {
     int address_family;
     int krb5;
     int watch_interval;            /* 0 = disabled; >0 = seconds between runs  */
+    int sweep;                     /* benchmark rsize/wsize/nconnect combos    */
+    int parallel;                  /* >1 = concurrent export workers           */
+    int listen_port;               /* >0 = serve Prometheus metrics over HTTP  */
+    int diff_baseline;             /* compare with and update saved baseline   */
     size_t bench_bytes;
     gid_t supplemental_groups[MAX_SUPP_GROUPS];
     size_t supplemental_group_count;
@@ -132,7 +140,8 @@ struct options {
     const char *html_path;
     const char *bench_type;
     const char *mount_options;
-    const char *single_export;
+    const char *cli_exports[MAX_CLI_EXPORTS];  /* --export, repeatable */
+    size_t cli_export_count;
     const char *hosts_file;        /* path to file with one host per line      */
     const char *on_fail_exec;      /* script to exec when any test fails       */
     const char *config_file;       /* path to configuration file               */
@@ -265,15 +274,19 @@ void report_info(const char *fmt, ...);
 void enable_report_only_output(void);
 void reset_diagnostic_state(void);
 void write_json_report(const char *host);
+int  write_json_report_file(const char *host, const char *path);
 void write_html_report(const char *host);
 void write_table_report(const char *host);
 void write_prometheus_report(const char *host);
+void write_junit_report(const char *host);
+char *prometheus_snapshot(const char *host);
 void print_interpretation(void);
 
 /* ---- network.c ---- */
 
 int         tcp_connect_timeout(const char *host, int port, int timeout_sec);
 void        network_tests(const char *host);
+void        check_rpc_dynamic_ports(const char *host, const struct rpc_services *svc);
 const char *proto_name(unsigned long proto);
 
 /* ---- rpc.c ---- */
@@ -293,6 +306,7 @@ void    check_nfs_versions(const char *host, const struct rpc_services *svc);
 void    check_mountd_versions(const char *host, const struct rpc_services *svc);
 void    enumerate_exports(const char *host, struct export_list *out);
 void    free_exports(struct export_list *list);
+void    fingerprint_server(const struct rpc_services *svc);
 
 /* ---- mount.c ---- */
 
@@ -306,6 +320,10 @@ int  mount_export(const char *host, const char *export_path,
 int  unmount_export(const char *mountpoint);
 int  setup_mount_namespace(void);
 void close_inherited_fds(int keep1, int keep2);
+void sweep_mount_options(const char *host, const char *export_path,
+                         const char *workspace, const char *vers);
+void test_krb5_mount_flavors(const char *host, const char *export_path,
+                             const char *workspace);
 
 /* ---- tests.c ---- */
 

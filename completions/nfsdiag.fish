@@ -8,7 +8,11 @@ complete -c nfsdiag      -l read-only      -d 'Do not create or write test files
 complete -c nfsdiag      -l uid            -d 'Simulate access as UID'             -r
 complete -c nfsdiag      -l gid            -d 'GID paired with last --uid'          -r
 complete -c nfsdiag      -l groups         -d 'Supplemental GIDs (comma-separated)' -r
-complete -c nfsdiag      -l krb5           -d 'Check Kerberos prerequisites'
+complete -c nfsdiag      -l krb5           -d 'Check Kerberos prerequisites and test sec=krb5* mounts'
+complete -c nfsdiag      -l parallel       -d 'Test up to N exports concurrently'  -r
+complete -c nfsdiag      -l sweep          -d 'Benchmark rsize/wsize/nconnect combos'
+complete -c nfsdiag      -l diff-baseline  -d 'Compare with last saved run and update baseline'
+complete -c nfsdiag      -l listen         -d 'Serve Prometheus metrics over HTTP on PORT' -r
 complete -c nfsdiag      -l udp            -d 'Also probe RPC NULLPROC over UDP'
 complete -c nfsdiag      -l ipv4-only      -d 'Force IPv4'
 complete -c nfsdiag      -l ipv6-only      -d 'Force IPv6'
@@ -34,7 +38,7 @@ complete -c nfsdiag      -l stale-iterations -d 'ESTALE probe iterations'       
 complete -c nfsdiag      -l json           -d 'Emit JSON report'                   -r -F
 complete -c nfsdiag      -l html           -d 'Emit HTML report'                   -r -F
 complete -c nfsdiag      -l output-dir     -d 'Write JSON, HTML, evidence and checksums' -r -F
-complete -c nfsdiag      -l output-format  -d 'Terminal output format'             -r -a "text table ndjson prometheus"
+complete -c nfsdiag      -l output-format  -d 'Terminal output format'             -r -a "text table ndjson prometheus junit"
 complete -c nfsdiag      -l keep-temp      -d 'Keep temp workspace after tests'
 complete -c nfsdiag      -l self-test      -d 'Validate local dependencies and helper checks'
 complete -c nfsdiag -s v -l verbose        -d 'Show all diagnostic steps'

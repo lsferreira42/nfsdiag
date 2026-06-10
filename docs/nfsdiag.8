@@ -26,8 +26,8 @@ attachments.
 .SS "Diagnostic options"
 .TP
 .BR \-e ", " \-\-export " " \fIPATH\fR
-Test only the export at \fIPATH\fR. Useful for NFSv4-only servers that hide
-the mountd export list.
+Test only the export at \fIPATH\fR. Repeatable (up to 64 paths) to test a
+chosen subset. Useful for NFSv4-only servers that hide the mountd export list.
 .TP
 .BR \-o ", " \-\-mount\-options " " \fIOPTS\fR
 Extra mount options passed verbatim to
@@ -53,6 +53,21 @@ Supplemental GIDs for the UID/GID simulation.
 .TP
 .B \-\-krb5
 Check Kerberos prerequisites: valid ticket (\fBklist -s\fR), rpc-gssd running.
+Additionally attempts mounts with \fBsec=krb5\fR, \fBsec=krb5i\fR, and
+\fBsec=krb5p\fR to report which flavors the server accepts.
+.TP
+.BI \-\-parallel " N"
+Test up to \fIN\fR exports concurrently (1-32) in forked workers. Default: 1.
+.TP
+.B \-\-sweep
+After the main tests, benchmark several rsize/wsize/nconnect combinations on a
+working export and recommend the best-performing mount options. Also enabled
+by \fB\-\-profile performance\fR.
+.TP
+.B \-\-diff\-baseline
+Compare this run's summary with the last saved run for the host (stored under
+\fI$XDG_DATA_HOME/nfsdiag\fR or \fI~/.local/share/nfsdiag\fR), report
+regressions, then update the baseline.
 .TP
 .B \-\-udp
 Also probe RPC NULLPROC over UDP.
@@ -158,7 +173,15 @@ Newline-delimited JSON: one event object per line as events are generated.
 .TP
 .B prometheus
 Emit metrics in OpenMetrics/Prometheus text format at end of run.
+.TP
+.B junit
+Emit JUnit XML for CI pipelines (fail \(-> failure, warn \(-> skipped).
 .RE
+.TP
+.BI \-\-listen " PORT"
+Serve Prometheus metrics over HTTP on \fIPORT\fR. Diagnostics re-run every
+\fB\-\-watch\fR seconds (default 60); the latest snapshot is served between
+runs.
 .TP
 .B \-\-keep\-temp
 Do not delete the temporary mount workspace after tests complete.

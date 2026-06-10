@@ -5,7 +5,7 @@ _nfsdiag() {
     local -a opts
 
     opts=(
-        '(-e --export)'{-e,--export}'[test only this export path]:export path:'
+        '*'{-e,--export}'[test only this export path (repeatable)]:export path:'
         '(-o --mount-options)'{-o,--mount-options}'[extra mount options]:mount options:'
         '--no-mount[run network/RPC checks only; skip all mounts]'
         '--dry-run[print what would be done; skip mounts and fs tests]'
@@ -13,7 +13,11 @@ _nfsdiag() {
         '--uid[simulate access as UID]:uid:'
         '--gid[GID paired with last --uid]:gid:'
         '--groups[supplemental GIDs]:gids (comma-separated):'
-        '--krb5[check Kerberos prerequisites]'
+        '--krb5[check Kerberos prerequisites and test sec=krb5* mounts]'
+        '--parallel[test up to N exports concurrently]:workers:'
+        '--sweep[benchmark rsize/wsize/nconnect combos and suggest mount options]'
+        '--diff-baseline[compare with last saved run and update baseline]'
+        '--listen[serve Prometheus metrics over HTTP on PORT]:port:'
         '--udp[also probe RPC NULLPROC over UDP]'
         '--ipv4-only[force IPv4 for direct TCP checks]'
         '--ipv6-only[force IPv6 for direct TCP checks]'
@@ -39,7 +43,7 @@ _nfsdiag() {
         '--json[emit JSON report]:path:_files'
         '--html[emit HTML report]:path:_files'
         '--output-dir[write JSON, HTML, evidence and checksums]:dir:_files -/'
-        '--output-format[terminal output format]:format:(text table ndjson prometheus)'
+        '--output-format[terminal output format]:format:(text table ndjson prometheus junit)'
         '--keep-temp[keep temp workspace after tests]'
         '--self-test[validate local dependencies and helper checks]'
         '(-v --verbose)'{-v,--verbose}'[show all diagnostic steps]'

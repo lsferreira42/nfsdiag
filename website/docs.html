@@ -15,7 +15,64 @@
       rel="stylesheet"
     />
     <link rel="canonical" href="https://www.nfsdiag.org/docs.html" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="author" content="Leandro Ferreira" />
+    <meta
+      name="keywords"
+      content="nfsdiag documentation, NFS CLI reference, NFS checks, mount options, rsize wsize nconnect, NFS fixtures, NFS JSON report, Prometheus NFS exporter, JUnit, rpcbind, mountd"
+    />
+    <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1217" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
     <meta property="og:url" content="https://www.nfsdiag.org/docs.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="nfsdiag" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="nfsdiag — full documentation" />
+    <meta
+      property="og:description"
+      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+    />
+    <meta property="og:image" content="https://www.nfsdiag.org/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="nfsdiag — diagnose NFS servers from the client side" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="nfsdiag — full documentation" />
+    <meta
+      name="twitter:description"
+      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+    />
+    <meta name="twitter:image" content="https://www.nfsdiag.org/og-image.png" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "TechArticle",
+          "@id": "https://www.nfsdiag.org/docs.html#article",
+          "headline": "nfsdiag — full documentation",
+          "description": "Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog.",
+          "url": "https://www.nfsdiag.org/docs.html",
+          "inLanguage": "en",
+          "dateModified": "2026-06-10",
+          "image": "https://www.nfsdiag.org/og-image.png",
+          "author": { "@id": "https://www.nfsdiag.org/author.html#person" },
+          "about": { "@id": "https://www.nfsdiag.org/#software" },
+          "isPartOf": { "@id": "https://www.nfsdiag.org/#website" }
+        },
+        {
+          "@type": "BreadcrumbList",
+          "itemListElement": [
+            { "@type": "ListItem", "position": 1, "name": "nfsdiag", "item": "https://www.nfsdiag.org/" },
+            { "@type": "ListItem", "position": 2, "name": "Documentation", "item": "https://www.nfsdiag.org/docs.html" }
+          ]
+        }
+      ]
+    }
+    </script>
     <link rel="stylesheet" href="website/site.css" />
     <script>
       (function () {
@@ -79,7 +136,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.7.0 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.9.0 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -130,7 +187,7 @@
               <td class="flag">-e, --export</td>
               <td class="arg">PATH</td>
               <td class="def">—</td>
-              <td>Test only this export path instead of all discovered exports.</td>
+              <td>Test only this export path instead of all discovered exports. Repeatable up to 64 times to test a chosen subset.</td>
             </tr>
             <tr>
               <td class="flag">-o, --mount-options</td>
@@ -226,7 +283,7 @@
               <td class="flag">--allow-risky-mount-options</td>
               <td class="arg">—</td>
               <td class="def">—</td>
-              <td>Permit risky mount options such as <code class="inline">exec</code>, <code class="inline">suid</code>, and <code class="inline">dev</code>.</td>
+              <td>Permit risky mount options such as <code class="inline">exec</code>, <code class="inline">suid</code>, and <code class="inline">dev</code>, and skip the default <code class="inline">nosuid,nodev,noexec</code> mount hardening.</td>
             </tr>
             <tr>
               <td class="flag">--profile</td>
@@ -257,6 +314,24 @@
               <td class="arg">FILE</td>
               <td class="def">—</td>
               <td>Load options from FILE (key=value, one per line) before parsing remaining CLI arguments. CLI flags override the config file.</td>
+            </tr>
+            <tr>
+              <td class="flag">--parallel</td>
+              <td class="arg">N</td>
+              <td class="def">1</td>
+              <td>Test up to N exports concurrently (1-32). Each worker mounts, diagnoses, and unmounts its export in a forked child; results are merged into the normal reports.</td>
+            </tr>
+            <tr>
+              <td class="flag">--sweep</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>After the main tests, re-mount the first working export with several <code class="inline">rsize/wsize/nconnect</code> combinations, benchmark each, and recommend the best-performing mount options. Also enabled by <code class="inline">--profile performance</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--diff-baseline</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Compare this run's summary with the last saved run for the host (stored under <code class="inline">$XDG_DATA_HOME/nfsdiag</code> or <code class="inline">~/.local/share/nfsdiag</code>), report regressions, then update the baseline.</td>
             </tr>
           </tbody>
         </table>
@@ -352,7 +427,13 @@
               <td class="flag">--output-format</td>
               <td class="arg">FMT</td>
               <td class="def">text</td>
-              <td>Terminal output format. <code class="inline">text</code>: tagged lines (default). <code class="inline">table</code>: UTF-8 box-drawing summary table. <code class="inline">ndjson</code>: streaming newline-delimited JSON per event. <code class="inline">prometheus</code>: OpenMetrics text at end of run.</td>
+              <td>Terminal output format. <code class="inline">text</code>: tagged lines (default). <code class="inline">table</code>: UTF-8 box-drawing summary table. <code class="inline">ndjson</code>: streaming newline-delimited JSON per event. <code class="inline">prometheus</code>: OpenMetrics text at end of run. <code class="inline">junit</code>: JUnit XML for CI pipelines (fail → failure, warn → skipped).</td>
+            </tr>
+            <tr>
+              <td class="flag">--listen</td>
+              <td class="arg">PORT</td>
+              <td class="def">—</td>
+              <td>Serve Prometheus metrics over HTTP on PORT (responds to any path, e.g. <code class="inline">/metrics</code>). Re-runs diagnostics every <code class="inline">--watch</code> SEC (default 60) and serves the latest snapshot between runs.</td>
             </tr>
             <tr>
               <td class="flag">--output-dir</td>
@@ -421,15 +502,23 @@
                 TCP reachability for rpcbind (<code class="inline">tcp/111</code>) and NFS
                 (<code class="inline">tcp/2049</code>). IPv4 and IPv6 with fallback.
                 Optional UDP probe with <code class="inline">--udp</code>.
+                Measures TCP connect latency (min/avg/max) and the path MTU
+                towards the server, warning when the MTU is below 1500.
+                DNS failures are reported with the real resolver error.
               </td>
             </tr>
             <tr>
               <th>rpc</th>
               <td>
-                Full service map from rpcbind. <code class="inline">NULLPROC</code> probes
+                Full service map from rpcbind: modern rpcbind v3/v4
+                <code class="inline">DUMP</code> (native IPv6, real ports) with legacy
+                portmapper fallback. <code class="inline">NULLPROC</code> probes
                 for NFS v2, v3, v4, v4.1, v4.2; mountd v1, v2, v3; lockd/NLM;
                 statd/NSM. Detects which versions are actually registered and
-                responding.
+                responding. Verifies that dynamically registered
+                mountd/lockd/statd TCP ports are reachable through firewalls,
+                and emits a heuristic fingerprint of the server implementation
+                from its service layout.
               </td>
             </tr>
             <tr>
@@ -447,7 +536,9 @@
               <td>
                 Enumerates exports via mountd (tries v3, v2, v1). Falls back to
                 NFSv4 pseudo-root discovery when mountd is unavailable. Respects
-                <code class="inline">--export PATH</code> to test a single path.
+                repeatable <code class="inline">--export PATH</code> flags to test a
+                chosen subset, and <code class="inline">--parallel N</code> to test
+                several exports concurrently.
               </td>
             </tr>
             <tr>
@@ -457,7 +548,10 @@
                 → v4 → v3. Parses effective mount options from
                 <code class="inline">/proc/self/mountinfo</code> and verifies
                 they match expected values. Supports private mount namespace
-                isolation.
+                isolation. With <code class="inline">--krb5</code>, additionally
+                tests which Kerberos security flavors
+                (<code class="inline">sec=krb5/krb5i/krb5p</code>) the server
+                actually accepts at mount time.
               </td>
             </tr>
             <tr>
@@ -506,14 +600,17 @@
             <tr>
               <th>performance</th>
               <td>
-                Internal read/write throughput smoke test. Metadata latency
-                (create/rename/unlink loop). External
+                Internal read/write throughput smoke test (the read pass drops
+                the client page cache first so it reflects the server). Metadata
+                latency (create/rename/unlink loop). External
                 <code class="inline">fio</code> backend (opt-in via
                 <code class="inline">--bench-type=fio</code>). Deep latency
                 histograms and RPC operation stats from
                 <code class="inline">/proc/self/mountstats</code>. RPC
                 retransmission and auth-refresh delta captured before and after
-                tests.
+                tests. With <code class="inline">--sweep</code>: benchmarks
+                rsize/wsize/nconnect combinations and recommends the
+                best-performing mount options.
               </td>
             </tr>
             <tr>
@@ -553,10 +650,13 @@
             <tr>
               <th>reporting</th>
               <td>
-                Tagged text, UTF-8 box-drawing table, streaming NDJSON, and
-                Prometheus/OpenMetrics output. Hierarchical JSON with per-export
-                events. Standalone HTML with Content-Security-Policy header
-                and all server-supplied strings HTML-escaped.
+                Tagged text, UTF-8 box-drawing table, streaming NDJSON,
+                Prometheus/OpenMetrics, and JUnit XML output. Hierarchical JSON
+                with per-export events. Standalone HTML with
+                Content-Security-Policy header and all server-supplied strings
+                HTML-escaped. Embedded HTTP exporter with
+                <code class="inline">--listen PORT</code>, and per-host baseline
+                comparison with <code class="inline">--diff-baseline</code>.
               </td>
             </tr>
           </tbody>
@@ -727,7 +827,7 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.7.0: 192.168.0.21
+<pre><code class="block">nfsdiag 0.9.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -1010,19 +1110,28 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
               <th>input validation</th>
               <td>
                 Hostnames, export paths, and mount options are validated before
-                network or mount activity. Risky mount options require
+                network or mount activity. Exports are mounted with
+                <code class="inline">nosuid,nodev,noexec</code> by default;
+                risky mount options and disabling that hardening require
                 <code class="inline">--allow-risky-mount-options</code>.
                 Symlink, hardlink, FIFO, and device-node probes require
                 <code class="inline">--dangerous-fs-tests</code>.
+                <code class="inline">--config</code> files and
+                <code class="inline">--on-fail-exec</code> scripts are refused
+                when not owned by root/current user or when group/world-writable.
+                Output captured from external commands is sanitised for terminal
+                escape sequences before display.
               </td>
             </tr>
             <tr>
               <th>XDR / RPC</th>
               <td>
                 XDR string sizes bounded: export paths at 4096 bytes, group
-                names at 256 bytes. XDR linked-list recursion capped at depth
-                32 (<code class="inline">MAX_XDR_DEPTH</code>) to prevent stack
-                overflow from malicious server responses. All XDR strings are
+                names at 256 bytes. Export and group lists are decoded
+                iteratively (no recursion, so no stack-overflow exposure) with
+                node-count budgets (<code class="inline">MAX_XDR_EXPORT_NODES</code>,
+                <code class="inline">MAX_XDR_GROUP_NODES</code>) bounding the
+                memory a malicious server can force. All XDR strings are
                 sanitised for control characters before display or HTML inclusion.
               </td>
             </tr>
@@ -1174,8 +1283,9 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.7.0"</td></tr>
-            <tr><td class="flag">MAX_XDR_DEPTH</td><td colspan="3">32</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.9.0"</td></tr>
+            <tr><td class="flag">MAX_XDR_EXPORT_NODES</td><td colspan="3">2048</td></tr>
+            <tr><td class="flag">MAX_XDR_GROUP_NODES</td><td colspan="3">8192</td></tr>
             <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
             <tr><td class="flag">RPCBIND_PORT</td><td colspan="3">111</td></tr>
             <tr><td class="flag">NFS_PORT</td><td colspan="3">2049</td></tr>
@@ -1277,6 +1387,49 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
             <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </h2>
+
+        <p class="subsec">v0.9.0</p>
+        <p class="lede">
+          Feature release: parallel export testing, mount option sweep,
+          Kerberos flavor probing, JUnit output, embedded Prometheus exporter,
+          baseline comparison, deeper network diagnostics, server
+          fingerprinting, and native IPv6 rpcbind — on top of the security
+          hardening and correctness fixes below.
+        </p>
+        <ul class="fixtures">
+          <li><code class="inline">--export</code> is now repeatable (up to 64 paths) to test a chosen subset of exports</li>
+          <li><code class="inline">--parallel N</code> — test up to 32 exports concurrently in forked workers, with results merged into the normal reports</li>
+          <li><code class="inline">--sweep</code> — benchmark rsize/wsize/nconnect combinations on a working export and recommend the best mount options (also enabled by <code class="inline">--profile performance</code>)</li>
+          <li><code class="inline">--krb5</code> now also mounts with <code class="inline">sec=krb5</code>, <code class="inline">krb5i</code>, and <code class="inline">krb5p</code> to report which flavors the server accepts</li>
+          <li><code class="inline">--output-format junit</code> — JUnit XML for CI pipelines (fail → failure, warn → skipped)</li>
+          <li><code class="inline">--listen PORT</code> — embedded HTTP exporter serving Prometheus metrics, refreshing diagnostics every <code class="inline">--watch</code> seconds</li>
+          <li><code class="inline">--diff-baseline</code> — keep a per-host baseline under <code class="inline">~/.local/share/nfsdiag</code> and report regressions against the previous run</li>
+          <li>Network checks now measure TCP connect latency and path MTU, and verify reachability of dynamically registered mountd/lockd/statd ports</li>
+          <li>Heuristic server implementation fingerprint from the RPC service layout (knfsd-style, NFSv4-only, fixed-port appliance, v3-only)</li>
+          <li>rpcbind v3/v4 <code class="inline">DUMP</code> support: full service map with real ports over IPv6, replacing blind program probing when available</li>
+        </ul>
+        <ul class="fixtures">
+          <li>Exports are now mounted with <code class="inline">nosuid,nodev,noexec</code> by default; <code class="inline">--allow-risky-mount-options</code> disables the hardening</li>
+          <li>Identity simulation always resets supplemental groups before <code class="inline">setuid()</code>, so access results reflect the simulated user instead of root's groups</li>
+          <li>Evidence and <code class="inline">SHA256SUMS</code> files in <code class="inline">--output-dir</code> are created with <code class="inline">O_NOFOLLOW</code> and mode 0600 (no more symlink-following <code class="inline">fopen</code>)</li>
+          <li>Output captured from external commands (mount, klist, …) is sanitised for terminal escape sequences before display</li>
+          <li><code class="inline">--on-fail-exec</code> refuses scripts not owned by root/current user or writable by group/others</li>
+          <li><code class="inline">--config</code> refuses files not owned by root/current user or writable by group/others</li>
+          <li>Benchmark test file is created with <code class="inline">O_EXCL</code>, closing a hardlink pre-creation window on shared exports</li>
+          <li>Random test-path generation falls back to <code class="inline">/dev/urandom</code> before the weak time/pid fallback</li>
+          <li>Mount-options values are redacted from the argv recorded in the evidence file</li>
+          <li><code class="inline">--output-dir</code> permission fix-up now uses <code class="inline">open(O_DIRECTORY|O_NOFOLLOW)</code> + <code class="inline">fchmod</code> (TOCTOU removed); <code class="inline">nfsdiag diff</code> summary parsing is anchored to the <code class="inline">summary</code> object</li>
+          <li>Export/group XDR lists are decoded iteratively: servers with more than ~32 exports no longer fail enumeration (the old recursion depth cap limited list length), and node budgets still bound allocations</li>
+          <li><code class="inline">--config=FILE</code> (equals form) is now recognised; previously only <code class="inline">--config FILE</code> loaded the file</li>
+          <li>Partially decoded export lists are freed when the mountd EXPORT call fails (memory leak fixed)</li>
+          <li>Read benchmark drops the client page cache (<code class="inline">posix_fadvise DONTNEED</code>) before reading back, so the number reflects the server; if the cache cannot be dropped the result is labelled</li>
+          <li>Filesystem-timeout disarm no longer touches an uninitialised <code class="inline">sigaction</code> when timeouts are disabled</li>
+          <li>Colour output is re-evaluated per line instead of cached once, fixing stale colour decisions in watch/hosts-file modes after stdout redirection</li>
+          <li><code class="inline">nfsdiag diff</code> reads whole reports instead of truncating at 64&nbsp;KiB</li>
+          <li>Metadata latency test files now use the same randomised naming as all other test files</li>
+          <li>DNS failures are reported with the real <code class="inline">getaddrinfo</code> error ("Name or service not known", …) instead of a generic "unreachable" per port</li>
+          <li>Config-supplied <code class="inline">bench-type</code>/<code class="inline">output-dir</code> strings no longer leak on reload</li>
+        </ul>
 
         <p class="subsec">v0.6.1</p>
         <p class="lede">
@@ -1409,7 +1562,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.7.0</strong></span>
+      <span>nfsdiag <strong>v0.9.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

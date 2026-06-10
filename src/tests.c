@@ -22,8 +22,16 @@ static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx
     /* Add random bytes to make test paths unpredictable even in shared
      * exports, preventing timing-based symlink pre-creation by other users. */
     uint32_t rnd = 0;
-    if (getrandom(&rnd, sizeof(rnd), 0) < 0)
-        rnd = (uint32_t)(time(NULL) ^ getpid());
+    if (getrandom(&rnd, sizeof(rnd), 0) < 0) {
+        int rfd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
+        ssize_t got = -1;
+        if (rfd >= 0) {
+            got = read(rfd, &rnd, sizeof(rnd));
+            close(rfd);
+        }
+        if (got != (ssize_t)sizeof(rnd))
+            rnd = (uint32_t)(time(NULL) ^ getpid());
+    }
     snprintf(dst, sz, "%s/.nfsdiag-%ld-%08x-%s", mp, (long)getpid(), rnd, sfx);
 }
 
@@ -53,6 +61,9 @@ static void arm_fs_timeout(struct sigaction *old) {
 }
 
 static void disarm_fs_timeout(const struct sigaction *old) {
+    /* Mirror arm_fs_timeout(): when arming was skipped, *old was never
+     * filled in and must not be passed to sigaction(). */
+    if (opt.fs_timeout_sec <= 0) return;
     alarm(0);
     if (old) sigaction(SIGALRM, old, NULL);
     fs_timeout_fired = 0;
@@ -129,7 +140,9 @@ static void test_metadata_latency(const char *mp, struct export_report *rpt) {
     int completed = 0;
     for (int i = 0; i < opt.bench_iterations && !fs_timeout_fired; i++) {
         char path[4096], renamed[8192];
-        snprintf(path, sizeof(path), "%s/.nfsdiag-meta-%ld-%d", mp, (long)getpid(), i);
+        char sfx[32];
+        snprintf(sfx, sizeof(sfx), "meta-%d", i);
+        make_test_path(path, sizeof(path), mp, sfx);
         snprintf(renamed, sizeof(renamed), "%s.renamed", path);
         struct timespec a, b;
         clock_gettime(CLOCK_MONOTONIC, &a);
@@ -185,7 +198,7 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
     struct sigaction old_sa;
     arm_fs_timeout(&old_sa);
 
-    int fd = open(path, O_CREAT | O_TRUNC | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    int fd = open(path, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) {
         disarm_fs_timeout(&old_sa);
         if (errno == ESTALE) report_fail("creating test file returned ESTALE");
@@ -236,6 +249,11 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
         if (fsync(fd) != 0) report_warn("fsync failed: %s", strerror(errno));
         clock_gettime(CLOCK_MONOTONIC, &w1);
 
+        /* Drop the just-written pages from the client page cache so the
+         * readback exercises the server instead of local memory. */
+        int cache_dropped =
+            posix_fadvise(fd, 0, (off_t)opt.bench_bytes, POSIX_FADV_DONTNEED) == 0;
+
         lseek(fd, 0, SEEK_SET);
         char buf[65536];
         size_t left = opt.bench_bytes;
@@ -261,7 +279,9 @@ static void test_write_read_benchmark(const char *mp, struct export_report *rpt)
         }
         if (read_ms > 0.0) {
             rpt->read_mib_s = mib / (read_ms / 1000.0);
-            report_ok("read benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)", mib, read_ms, rpt->read_mib_s);
+            report_ok("read benchmark: %.2f MiB in %.2f ms (%.2f MiB/s)%s", mib, read_ms,
+                      rpt->read_mib_s,
+                      cache_dropped ? "" : " [may include client page cache]");
         }
     }
 
@@ -532,7 +552,14 @@ static int child_identity_probe(const char *mp, uid_t uid, gid_t gid) {
      * Failure is non-fatal — we proceed without ambient cap clearing. */
     prctl(PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0);
 
-    if (opt.supplemental_group_count > 0 && setgroups(opt.supplemental_group_count, opt.supplemental_groups) != 0) _exit(CHILD_SETGROUPS_FAIL);
+    /* Always reset supplemental groups: without this the child keeps the
+     * parent's (typically root's) groups and the access checks pass for
+     * identities that would be denied in reality. */
+    if (opt.supplemental_group_count > 0) {
+        if (setgroups(opt.supplemental_group_count, opt.supplemental_groups) != 0) _exit(CHILD_SETGROUPS_FAIL);
+    } else if (geteuid() == 0 && setgroups(1, &gid) != 0) {
+        _exit(CHILD_SETGROUPS_FAIL);
+    }
     if (setgid(gid) != 0) _exit(CHILD_SETGID_FAIL);
     if (setuid(uid) != 0) _exit(CHILD_SETUID_FAIL);
     if (access(mp, R_OK | X_OK) != 0) _exit(CHILD_ACCESS_DENIED);

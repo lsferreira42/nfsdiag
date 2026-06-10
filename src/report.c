@@ -149,10 +149,10 @@ static int important_ok_message(const char *msg) {
 }
 
 static int use_colors(void) {
-    static int cached = -1;
-    if (cached == -1)
-        cached = isatty(fileno(stdout)) ? 1 : 0;
-    return cached;
+    /* No caching: stdout can be redirected to /dev/null and restored between
+     * runs (watch/hosts-file modes, --json=-), so a one-time answer goes
+     * stale. isatty() is one cheap syscall per printed line. */
+    return isatty(fileno(stdout)) ? 1 : 0;
 }
 
 #define ANSI_GREEN  "\033[32m"
@@ -336,26 +336,7 @@ static FILE *open_saved_stdout_stream(void) {
     return f;
 }
 
-void write_json_report(const char *host) {
-    if (!opt.json) return;
-    FILE *f = NULL;
-    if (opt.json_path && strcmp(opt.json_path, "-") != 0) {
-        int fd = open(opt.json_path,
-                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
-        if (fd < 0) {
-            fprintf(stderr, "[ERROR] cannot open JSON report %s: %s\n",
-                    opt.json_path, strerror(errno));
-            return;
-        }
-        f = fdopen(fd, "w");
-        if (!f) { close(fd); return; }
-    } else if (saved_stdout_fd >= 0) {
-        f = open_saved_stdout_stream();
-        if (!f) return;
-    } else {
-        f = stdout;
-    }
-
+static void json_emit(FILE *f, const char *host) {
     time_t now = time(NULL);
     if (diagnostic_start == 0) diagnostic_start = now;
     char iso[64] = {0};
@@ -413,8 +394,42 @@ void write_json_report(const char *host) {
     }
     fprintf(f, "  ]\n");
     fprintf(f, "}\n");
+}
 
+void write_json_report(const char *host) {
+    if (!opt.json) return;
+    FILE *f = NULL;
+    if (opt.json_path && strcmp(opt.json_path, "-") != 0) {
+        int fd = open(opt.json_path,
+                      O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (fd < 0) {
+            fprintf(stderr, "[ERROR] cannot open JSON report %s: %s\n",
+                    opt.json_path, strerror(errno));
+            return;
+        }
+        f = fdopen(fd, "w");
+        if (!f) { close(fd); return; }
+    } else if (saved_stdout_fd >= 0) {
+        f = open_saved_stdout_stream();
+        if (!f) return;
+    } else {
+        f = stdout;
+    }
+
+    json_emit(f, host);
     if (f != stdout) fclose(f);
+}
+
+/* Write the JSON report to an explicit path regardless of --json flags.
+ * Used by --diff-baseline to persist the current run. */
+int write_json_report_file(const char *host, const char *path) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd < 0) return -1;
+    FILE *f = fdopen(fd, "w");
+    if (!f) { close(fd); return -1; }
+    json_emit(f, host);
+    fclose(f);
+    return 0;
 }
 
 /* ---- HTML output ---- */
@@ -704,12 +719,7 @@ static void prom_label_escape(FILE *f, const char *s) {
     }
 }
 
-void write_prometheus_report(const char *host) {
-    if (opt.output_fmt != OUTPUT_FMT_PROMETHEUS) return;
-    if (opt.quiet) return;
-
-    FILE *f = stdout;
-
+static void prometheus_emit(FILE *f, const char *host) {
     fprintf(f, "# HELP nfsdiag_summary_ok Number of ok checks\n");
     fprintf(f, "# TYPE nfsdiag_summary_ok gauge\n");
     fprintf(f, "nfsdiag_summary_ok{host=\""); prom_label_escape(f, host); fprintf(f, "\"} %d\n", summary_ok);
@@ -771,6 +781,93 @@ void write_prometheus_report(const char *host) {
     }
 
     fprintf(f, "# EOF\n");
+}
+
+void write_prometheus_report(const char *host) {
+    if (opt.output_fmt != OUTPUT_FMT_PROMETHEUS) return;
+    if (opt.quiet) return;
+    prometheus_emit(stdout, host);
+}
+
+/* Render the Prometheus exposition into a malloc'd buffer for --listen.
+ * Caller frees. */
+char *prometheus_snapshot(const char *host) {
+    char *buf = NULL;
+    size_t sz = 0;
+    FILE *f = open_memstream(&buf, &sz);
+    if (!f) return NULL;
+    prometheus_emit(f, host);
+    fclose(f);
+    return buf;
+}
+
+/* ---- JUnit XML output (for CI pipelines) ---- */
+
+static void xml_escape(FILE *f, const char *s) {
+    for (; s && *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        switch (c) {
+            case '<':  fputs("&lt;", f);   break;
+            case '>':  fputs("&gt;", f);   break;
+            case '&':  fputs("&amp;", f);  break;
+            case '"':  fputs("&quot;", f); break;
+            default:
+                /* control characters are invalid in XML 1.0; drop them */
+                if (c >= 0x20 || c == '\t' || c == '\n')
+                    fputc(c, f);
+                else
+                    fputc(' ', f);
+                break;
+        }
+    }
+}
+
+void write_junit_report(const char *host) {
+    if (opt.output_fmt != OUTPUT_FMT_JUNIT) return;
+    if (opt.quiet) return;
+    FILE *f = stdout;
+
+    char iso[64] = {0};
+    time_t now = time(NULL);
+    struct tm tm_utc;
+    if (gmtime_r(&now, &tm_utc))
+        strftime(iso, sizeof(iso), "%Y-%m-%dT%H:%M:%S", &tm_utc);
+
+    size_t failures = 0, skipped = 0;
+    for (size_t i = 0; i < event_count; i++) {
+        if (strcmp(events[i].level, "fail") == 0) failures++;
+        else if (strcmp(events[i].level, "warn") == 0) skipped++;
+    }
+
+    fprintf(f, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    fprintf(f, "<testsuite name=\"nfsdiag\" hostname=\"");
+    xml_escape(f, host);
+    fprintf(f, "\" tests=\"%zu\" failures=\"%zu\" skipped=\"%zu\" errors=\"0\" timestamp=\"%s\">\n",
+            event_count, failures, skipped, iso);
+
+    for (size_t i = 0; i < event_count; i++) {
+        fprintf(f, "  <testcase classname=\"nfsdiag.");
+        xml_escape(f, events[i].category);
+        fprintf(f, "\" name=\"");
+        xml_escape(f, events[i].check_id);
+        fprintf(f, ": ");
+        xml_escape(f, events[i].message);
+        fprintf(f, "\"");
+        if (strcmp(events[i].level, "fail") == 0) {
+            fprintf(f, ">\n    <failure message=\"");
+            xml_escape(f, events[i].message);
+            fprintf(f, "\">");
+            xml_escape(f, events[i].remediation);
+            fprintf(f, "</failure>\n  </testcase>\n");
+        } else if (strcmp(events[i].level, "warn") == 0) {
+            fprintf(f, ">\n    <skipped message=\"");
+            xml_escape(f, events[i].message);
+            fprintf(f, "\"/>\n  </testcase>\n");
+        } else {
+            fprintf(f, "/>\n");
+        }
+    }
+    fprintf(f, "</testsuite>\n");
 }
 
 void print_interpretation(void) {

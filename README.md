@@ -15,14 +15,19 @@ It is not magic, and it will not replace a good server-side analysis. But it nar
 
 - test if `rpcbind` TCP port `111` is reachable
 - test if NFS TCP port `2049` is reachable
-- query the RPC service map from rpcbind (supports IPv6 fallback)
+- query the RPC service map from rpcbind (rpcbind v3/v4 DUMP with native IPv6, plus legacy portmapper)
+- measure TCP connect latency and path MTU towards the server
+- verify that dynamically registered mountd/lockd/statd ports are reachable through firewalls
+- fingerprint the server implementation heuristically from its RPC service layout
 - detect registered NFS, mountd, lockd/NLM and statd/NSM services
 - test NFS v2, v3 and v4 with RPC `NULLPROC` (including v4.1 and v4.2 hints)
 - test mountd v1, v2 and v3; optionally probe RPC over UDP
 - enumerate exports using mountd
 - check client prerequisite daemons (nfs-client.target, rpc.gssd, nfs-idmapd)
-- detect Kerberos tickets and configuration with `--krb5`
+- detect Kerberos tickets and configuration with `--krb5`, and test which sec=krb5/krb5i/krb5p flavors actually mount
 - mount exports automatically, trying NFSv4.2 → 4.1 → 4 → 3 in cascade
+- test selected exports only with repeatable `--export`, or several exports concurrently with `--parallel N`
+- benchmark rsize/wsize/nconnect combinations with `--sweep` and suggest mount options
 - parse and verify effective mount options from `/proc/self/mountinfo`
 - capture RPC stats (retransmissions, auth refreshes) before and after tests
 - extract deep latency metrics from `/proc/self/mountstats`
@@ -40,7 +45,9 @@ It is not magic, and it will not replace a good server-side analysis. But it nar
 - detect NFSv4 delegation activity via `/proc/self/mountstats` (DELEGRETURN operations)
 - check for pNFS layouts via `/proc/self/mountstats`
 - run external `fio` benchmarks alongside internal smoke tests
-- generate JSON and HTML reports; stream NDJSON; emit Prometheus metrics
+- generate JSON and HTML reports; stream NDJSON; emit Prometheus metrics or JUnit XML
+- serve Prometheus metrics continuously over HTTP with `--listen PORT`
+- keep a per-host baseline and compare each run against it with `--diff-baseline`
 - emit event categories, stable `check_id` values and remediation text for automation
 - write evidence bundles with `--output-dir`
 - compare two JSON reports with `nfsdiag diff`
@@ -339,7 +346,7 @@ man docs/nfsdiag.8           # view locally
 Usage: nfsdiag [OPTIONS] <server-ip-or-hostname>
 
 Diagnostic options:
-  -e, --export PATH          Test only this export path
+  -e, --export PATH          Test only this export path (repeatable, up to 64)
   -o, --mount-options OPTS   Extra mount options passed to mount(8)
       --no-mount             Run network/RPC checks only; skip all mounts
       --dry-run              Print what would be done; skip mounts and fs tests
@@ -347,7 +354,10 @@ Diagnostic options:
       --uid UID              Simulate access as UID (repeatable, needs root)
       --gid GID              GID paired with last --uid
       --groups G1,G2         Supplemental GIDs for UID/GID simulation
-      --krb5                 Check Kerberos prerequisites (ticket, gssd)
+      --krb5                 Check Kerberos prerequisites and test sec=krb5/krb5i/krb5p mounts
+      --parallel N           Test up to N exports concurrently (1-32). Default: 1
+      --sweep                Benchmark rsize/wsize/nconnect combos and suggest mount options
+      --diff-baseline        Compare with the last saved run for this host, then update it
       --udp                  Also probe RPC NULLPROC over UDP
       --ipv4-only            Force IPv4 for direct TCP checks
       --ipv6-only            Force IPv6 for direct TCP checks
@@ -357,6 +367,7 @@ Diagnostic options:
       --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes
       --allow-risky-mount-options
                               Permit risky mount options such as exec/suid/dev
+                              and skip the default nosuid,nodev,noexec hardening
       --profile NAME         quick, safe, full, performance, security, readonly
       --hosts-file FILE      Read one host per line from FILE
       --watch SEC            Re-run diagnostics every SEC seconds until Ctrl-C
@@ -379,7 +390,9 @@ Output options:
       --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)
       --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)
       --output-dir DIR       Write JSON, HTML, evidence and checksums to DIR
-      --output-format FMT    Terminal output format: text (default), table, ndjson, prometheus
+      --output-format FMT    Terminal output format: text (default), table, ndjson, prometheus, junit
+      --listen PORT          Serve Prometheus metrics over HTTP on PORT;
+                              re-runs diagnostics every --watch SEC (default 60)
       --keep-temp            Keep temp workspace after tests
   -v, --verbose              Show all diagnostic steps
   -q, --quiet                Suppress stdout (combine with --json=FILE or --html=FILE)
@@ -432,8 +445,12 @@ Available fixtures: `rpcbind-unreachable`, `nfs-port-unreachable`, `rpc-map-miss
 `nfsdiag` is designed to run as root. Key mitigations:
 
 - Mount operations run in a private mount namespace to avoid polluting the global namespace.
+- Exports are mounted with `nosuid,nodev,noexec` by default; disable only with `--allow-risky-mount-options`.
 - Host, export path and mount options are validated before network or mount activity.
 - Risky mount options require `--allow-risky-mount-options`.
+- Identity simulation always resets supplemental groups so results reflect the simulated user, not root.
+- `--on-fail-exec` scripts and `--config` files are refused if not owned by root/current user or if group/world-writable.
+- Output from external commands is sanitised for terminal escape sequences before display.
 - Symlink, hardlink, FIFO and device-node probes require `--dangerous-fs-tests`.
 - External commands are resolved from trusted directories and run with a minimal environment.
 - Report files are created with `O_NOFOLLOW` and mode `0600`.

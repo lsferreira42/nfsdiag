@@ -1,35 +1,14 @@
 #include "nfsdiag.h"
 
-/* ---- XDR helpers ---- */
+#include <netconfig.h>
+#include <rpc/rpcb_clnt.h>
+#include <rpc/rpcb_prot.h>
 
-static int xdr_groupnode(XDR *xdrs, struct groupnode *objp);
-static int xdr_exportnode(XDR *xdrs, struct exportnode *objp);
+/* ---- XDR helpers ---- */
 
 static bool_t xdr_void_proc(XDR *xdrs, ...) {
     (void)xdrs;
     return TRUE;
-}
-
-/* XDR recursion depth counter: prevents stack overflow from a malicious
- * server sending deeply nested export/group linked lists. */
-static int xdr_depth = 0;
-
-static int xdr_groups(XDR *xdrs, groups *objp) {
-    if (xdr_depth >= MAX_XDR_DEPTH) return FALSE;
-    xdr_depth++;
-    int r = xdr_pointer(xdrs, (char **)objp, sizeof(struct groupnode),
-                        (xdrproc_t)xdr_groupnode);
-    xdr_depth--;
-    return r;
-}
-
-static int xdr_exports_type(XDR *xdrs, exports *objp) {
-    if (xdr_depth >= MAX_XDR_DEPTH) return FALSE;
-    xdr_depth++;
-    int r = xdr_pointer(xdrs, (char **)objp, sizeof(struct exportnode),
-                        (xdrproc_t)xdr_exportnode);
-    xdr_depth--;
-    return r;
 }
 
 /* Sanitize a string received from RPC by replacing control characters.
@@ -44,19 +23,81 @@ static void sanitize_xdr_string(char *s) {
     }
 }
 
-static int xdr_groupnode(XDR *xdrs, struct groupnode *objp) {
-    int ok = xdr_string(xdrs, &objp->gr_name, MAX_XDR_GROUP_NAME) &&
-             xdr_groups(xdrs, &objp->gr_next);
-    if (ok) sanitize_xdr_string(objp->gr_name);
-    return ok;
+/* The export and group lists are decoded iteratively. A recursive decoder's
+ * stack depth grows with the list length, so any safe depth cap also caps how
+ * many exports can be decoded (the old MAX_XDR_DEPTH=32 rejected servers with
+ * more than ~32 exports). The iterative form needs no depth limit; node-count
+ * budgets still bound the memory a malicious server can make us allocate. */
+
+static void free_group_list(groups g) {
+    while (g) {
+        groups next = g->gr_next;
+        free(g->gr_name);
+        free(g);
+        g = next;
+    }
 }
 
-static int xdr_exportnode(XDR *xdrs, struct exportnode *objp) {
-    int ok = xdr_string(xdrs, &objp->ex_dir, MAX_XDR_EXPORT_PATH) &&
-             xdr_groups(xdrs, &objp->ex_groups) &&
-             xdr_exports_type(xdrs, &objp->ex_next);
-    if (ok) sanitize_xdr_string(objp->ex_dir);
-    return ok;
+static void free_export_list_nodes(exports e) {
+    while (e) {
+        exports next = e->ex_next;
+        free_group_list(e->ex_groups);
+        free(e->ex_dir);
+        free(e);
+        e = next;
+    }
+}
+
+static bool_t xdr_group_list(XDR *xdrs, groups *objp, size_t *budget) {
+    *objp = NULL;
+    groups *tail = objp;
+    for (;;) {
+        bool_t more = FALSE;
+        if (!xdr_bool(xdrs, &more)) return FALSE;
+        if (!more) return TRUE;
+        if (*budget == 0) return FALSE;
+        (*budget)--;
+        struct groupnode *node = calloc(1, sizeof(*node));
+        if (!node) return FALSE;
+        *tail = node;
+        if (!xdr_string(xdrs, &node->gr_name, MAX_XDR_GROUP_NAME)) return FALSE;
+        sanitize_xdr_string(node->gr_name);
+        tail = &node->gr_next;
+    }
+}
+
+static bool_t xdr_exports_type(XDR *xdrs, exports *objp) {
+    if (xdrs->x_op == XDR_FREE) {
+        free_export_list_nodes(*objp);
+        *objp = NULL;
+        return TRUE;
+    }
+    if (xdrs->x_op != XDR_DECODE) return FALSE;
+
+    *objp = NULL;
+    exports *tail = objp;
+    size_t nodes = 0;
+    size_t group_budget = MAX_XDR_GROUP_NODES;
+    int ok = 0;
+    for (;;) {
+        bool_t more = FALSE;
+        if (!xdr_bool(xdrs, &more)) break;
+        if (!more) { ok = 1; break; }
+        if (nodes++ >= MAX_XDR_EXPORT_NODES) break;
+        struct exportnode *node = calloc(1, sizeof(*node));
+        if (!node) break;
+        *tail = node;
+        if (!xdr_string(xdrs, &node->ex_dir, MAX_XDR_EXPORT_PATH)) break;
+        sanitize_xdr_string(node->ex_dir);
+        if (!xdr_group_list(xdrs, &node->ex_groups, &group_budget)) break;
+        tail = &node->ex_next;
+    }
+    if (!ok) {
+        free_export_list_nodes(*objp);
+        *objp = NULL;
+        return FALSE;
+    }
+    return TRUE;
 }
 
 /* ---- RPC timeout enforcement ---- */
@@ -189,6 +230,67 @@ static void probe_rpc_programs(const char *host, struct rpc_services *svc) {
     }
 }
 
+/* ---- rpcbind v3/v4 DUMP (works over IPv6, returns real ports) ---- */
+
+/* Universal address format ends in ".hi.lo" where port = hi*256 + lo. */
+static unsigned long uaddr_port(const char *uaddr) {
+    if (!uaddr) return 0;
+    const char *p1 = strrchr(uaddr, '.');
+    if (!p1 || p1 == uaddr) return 0;
+    const char *p0 = p1 - 1;
+    while (p0 > uaddr && *p0 != '.') p0--;
+    if (*p0 != '.') return 0;
+    char *end = NULL;
+    unsigned long hi = strtoul(p0 + 1, &end, 10);
+    if (!end || end != p1 || hi > 255) return 0;
+    unsigned long lo = strtoul(p1 + 1, &end, 10);
+    if (!end || *end != '\0' || lo > 255) return 0;
+    return hi * 256 + lo;
+}
+
+static int rpcb_dump_services(const char *host, struct rpc_services *svc) {
+    static const char *netids[] = {"tcp6", "tcp"};
+    int added = 0;
+
+    for (size_t n = 0; n < sizeof(netids) / sizeof(netids[0]) && !added; n++) {
+        /* skip the netid that contradicts a forced address family */
+        if (opt.address_family == AF_INET  && strcmp(netids[n], "tcp6") == 0) continue;
+        if (opt.address_family == AF_INET6 && strcmp(netids[n], "tcp")  == 0) continue;
+
+        struct netconfig *nconf = getnetconfigent(netids[n]);
+        if (!nconf) continue;
+
+        struct sigaction old;
+        arm_rpc_timeout(&old);
+        rpcblist *list = rpcb_getmaps(nconf, host);
+        disarm_rpc_timeout(&old);
+
+        for (rpcblist *p = list; p; p = p->rpcb_next) {
+            unsigned long prot = 0;
+            if (p->rpcb_map.r_netid &&
+                strncmp(p->rpcb_map.r_netid, "tcp", 3) == 0) prot = IPPROTO_TCP;
+            else if (p->rpcb_map.r_netid &&
+                     strncmp(p->rpcb_map.r_netid, "udp", 3) == 0) prot = IPPROTO_UDP;
+            else continue;
+            rpc_services_add(svc, p->rpcb_map.r_prog, p->rpcb_map.r_vers,
+                             prot, uaddr_port(p->rpcb_map.r_addr));
+            added++;
+            if (opt.verbose) {
+                report_info("rpcb: program=%lu (%s) version=%lu netid=%s port=%lu",
+                            (unsigned long)p->rpcb_map.r_prog,
+                            rpc_program_name(p->rpcb_map.r_prog),
+                            (unsigned long)p->rpcb_map.r_vers,
+                            p->rpcb_map.r_netid,
+                            uaddr_port(p->rpcb_map.r_addr));
+            }
+        }
+        if (list)
+            xdr_free((xdrproc_t)xdr_rpcblist_ptr, (char *)&list);
+        freenetconfigent(nconf);
+    }
+    return added;
+}
+
 void check_rpcbind(const char *host, struct rpc_services *svc) {
     if (opt.verbose) printf("\n[+] rpcbind / portmapper\n");
 
@@ -234,11 +336,17 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
         }
     }
 
-    /* IPv6 path or portmapper fallback: probe programs individually */
+    /* IPv6 path or portmapper fallback: try the modern rpcbind v3/v4 DUMP
+     * first (works over IPv6 and returns real ports), then fall back to
+     * probing programs individually. */
+    if (rpcb_dump_services(host, svc) > 0) {
+        report_ok("RPC service map fetched via rpcbind v3/v4 DUMP");
+        goto check_services;
+    }
     if (opt.address_family == AF_INET6) {
-        report_info("IPv6 selected; using direct RPC probing instead of legacy portmapper");
+        report_info("IPv6 selected and rpcbind DUMP unavailable; using direct RPC probing");
     } else {
-        report_info("portmapper query failed; falling back to direct RPC probing");
+        report_info("portmapper and rpcbind DUMP queries failed; falling back to direct RPC probing");
     }
     probe_rpc_programs(host, svc);
     if (svc->len > 0) report_ok("RPC services detected via direct probing");
@@ -367,17 +475,19 @@ static void add_export_from_rpc(struct export_list *out, const char *path, group
 void enumerate_exports(const char *host, struct export_list *out) {
     if (opt.verbose) printf("\n[+] Export enumeration\n");
 
-    if (opt.single_export) {
-        char *path_dup = strdup(opt.single_export);
-        if (!path_dup) {
-            report_fail("out of memory recording --export path");
-            return;
+    if (opt.cli_export_count > 0) {
+        for (size_t i = 0; i < opt.cli_export_count && out->count < MAX_EXPORTS; i++) {
+            char *path_dup = strdup(opt.cli_exports[i]);
+            if (!path_dup) {
+                report_fail("out of memory recording --export path");
+                continue;
+            }
+            out->items[out->count].path        = path_dup;
+            out->items[out->count].groups      = calloc(1, sizeof(char *));
+            out->items[out->count].group_count = 0;
+            out->count++;
+            report_info("using export supplied by user: %s", opt.cli_exports[i]);
         }
-        out->items[0].path        = path_dup;
-        out->items[0].groups      = calloc(1, sizeof(char *));
-        out->items[0].group_count = 0;
-        out->count = 1;
-        report_info("using export supplied by user: %s", opt.single_export);
         return;
     }
 
@@ -404,6 +514,8 @@ void enumerate_exports(const char *host, struct export_list *out) {
                                   (xdrproc_t)xdr_exports_type, (char *)&ex, tv);
     if (st != RPC_SUCCESS) {
         report_fail("mountd EXPORT call failed: %s", clnt_sperrno(st));
+        /* free any partially decoded list before tearing the client down */
+        clnt_freeres(cl, (xdrproc_t)xdr_exports_type, (char *)&ex);
         clnt_destroy(cl);
         return;
     }
@@ -435,6 +547,43 @@ void enumerate_exports(const char *host, struct export_list *out) {
 
     clnt_freeres(cl, (xdrproc_t)xdr_exports_type, (char *)&ex);
     clnt_destroy(cl);
+}
+
+/* ---- server implementation fingerprint (heuristic) ---- */
+
+void fingerprint_server(const struct rpc_services *svc) {
+    if (svc->len == 0) {
+        report_info("server fingerprint: no RPC service map available (NFSv4-only or filtered rpcbind)");
+        return;
+    }
+
+    int has_nfs3 = rpc_services_has_version(svc, NFS_PROGRAM, 3);
+    int has_nfs4 = rpc_services_has_version(svc, NFS_PROGRAM, 4);
+    int has_mountd = rpc_services_has(svc, MOUNT_PROGRAM);
+    int has_nlm = rpc_services_has(svc, NLM_PROGRAM);
+    int has_nsm = rpc_services_has(svc, NSM_PROGRAM);
+
+    unsigned long mountd_port = 0, nlm_port = 0;
+    for (size_t i = 0; i < svc->len; i++) {
+        if (svc->items[i].prog == MOUNT_PROGRAM && svc->items[i].port && !mountd_port)
+            mountd_port = svc->items[i].port;
+        if (svc->items[i].prog == NLM_PROGRAM && svc->items[i].port && !nlm_port)
+            nlm_port = svc->items[i].port;
+    }
+
+    const char *guess;
+    if (mountd_port == 4046 && nlm_port == 4045)
+        guess = "fixed-port appliance layout (NetApp ONTAP-style: mountd=4046, nlm=4045)";
+    else if (!has_mountd && has_nfs4 && !has_nfs3)
+        guess = "NFSv4-only server (modern Linux export, NFS-Ganesha, or appliance)";
+    else if (has_mountd && has_nfs3 && has_nfs4 && has_nlm && has_nsm)
+        guess = "full v3+v4 stack with mountd/lockd/statd (Linux knfsd-style)";
+    else if (has_nfs3 && !has_nfs4)
+        guess = "NFSv3-only server (legacy export or appliance with v4 disabled)";
+    else
+        guess = "mixed/unusual service layout; no confident match";
+
+    report_info("server fingerprint (heuristic): %s", guess);
 }
 
 void free_exports(struct export_list *list) {

@@ -60,8 +60,20 @@ int resolve_command_path(const char *cmd, char *out, size_t out_sz) {
     return -1;
 }
 
+/* Replace control characters (except newline/tab) in captured output so
+ * command- or server-controlled bytes cannot inject terminal escape
+ * sequences when the text is later printed or logged. */
+static void sanitize_cmd_output(char *s) {
+    for (; *s; s++) {
+        unsigned char c = (unsigned char)*s;
+        if (c < 0x20 && c != '\n' && c != '\t')
+            *s = '?';
+    }
+}
+
 int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     int pipefd[2];
+    if (output_sz == 0) return -1;
     if (pipe(pipefd) != 0) return -1;
 
     pid_t pid = fork();
@@ -129,6 +141,7 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
                          used < output_sz ? output_sz - used : 1,
                          "%scommand timed out after %d seconds",
                          used ? "\n" : "", opt.command_timeout_sec);
+                sanitize_cmd_output(output);
             }
             close(pipefd[0]);
             return 124;
@@ -149,7 +162,10 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
             n = read(pipefd[0], discard, sizeof(discard));
         }
     } while (n > 0);
-    if (output_sz) output[used < output_sz ? used : output_sz - 1] = '\0';
+    if (output_sz) {
+        output[used < output_sz ? used : output_sz - 1] = '\0';
+        sanitize_cmd_output(output);
+    }
     close(pipefd[0]);
 
     if (WIFEXITED(status)) return WEXITSTATUS(status);
@@ -203,10 +219,14 @@ static void compose_source(char *dst, size_t dst_sz, const char *host,
 }
 
 static void compose_options(char *dst, size_t dst_sz, const char *version) {
+    /* Default hardening: the server is untrusted, so block setuid binaries,
+     * device nodes and direct execution from the mount. Skipped only when the
+     * user explicitly accepts risk via --allow-risky-mount-options. */
+    const char *hardening = opt.allow_risky_mount_options ? "" : ",nosuid,nodev,noexec";
     if (opt.mount_options && opt.mount_options[0])
-        snprintf(dst, dst_sz, "vers=%s,%s", version, opt.mount_options);
+        snprintf(dst, dst_sz, "vers=%s%s,%s", version, hardening, opt.mount_options);
     else
-        snprintf(dst, dst_sz, "vers=%s", version);
+        snprintf(dst, dst_sz, "vers=%s%s", version, hardening);
 }
 
 /* ---- mount with NFSv4.2/4.1/4/3 cascade ---- */
@@ -297,6 +317,187 @@ int unmount_export(const char *mountpoint) {
     report_fail("lazy umount also failed for %s: %s", mountpoint,
                 output[0] ? output : "no output");
     return -1;
+}
+
+/* ---- mount option sweep (rsize/wsize/nconnect benchmark) ---- */
+
+static volatile sig_atomic_t sweep_timeout_fired = 0;
+static void sweep_timeout_handler(int sig) { (void)sig; sweep_timeout_fired = 1; }
+
+static double sweep_now_ms(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1000.0 + (double)ts.tv_nsec / 1000000.0;
+}
+
+/* Time a write+fsync and a cache-dropped read of bench_bytes inside mp.
+ * Returns 0 on success with rates in MiB/s, -1 on failure/timeout. */
+static int sweep_benchmark(const char *mp, double *write_mib_s, double *read_mib_s) {
+    char path[4352];
+    snprintf(path, sizeof(path), "%s/.nfsdiag-sweep-%ld", mp, (long)getpid());
+
+    struct sigaction sa, old;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = sweep_timeout_handler;
+    sweep_timeout_fired = 0;
+    sigaction(SIGALRM, &sa, &old);
+    alarm((unsigned)(opt.fs_timeout_sec > 0 ? opt.fs_timeout_sec : 30));
+
+    int rc = -1;
+    int fd = open(path, O_CREAT | O_EXCL | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        char buf[65536];
+        memset(buf, 'S', sizeof(buf));
+        size_t left = opt.bench_bytes;
+        double w0 = sweep_now_ms();
+        while (left && !sweep_timeout_fired) {
+            size_t chunk = left < sizeof(buf) ? left : sizeof(buf);
+            ssize_t w = write(fd, buf, chunk);
+            if (w <= 0) break;
+            left -= (size_t)w;
+        }
+        if (left == 0 && fsync(fd) == 0 && !sweep_timeout_fired) {
+            double w1 = sweep_now_ms();
+            (void)posix_fadvise(fd, 0, (off_t)opt.bench_bytes, POSIX_FADV_DONTNEED);
+            lseek(fd, 0, SEEK_SET);
+            left = opt.bench_bytes;
+            double r0 = sweep_now_ms();
+            while (left && !sweep_timeout_fired) {
+                size_t chunk = left < sizeof(buf) ? left : sizeof(buf);
+                ssize_t r = read(fd, buf, chunk);
+                if (r <= 0) break;
+                left -= (size_t)r;
+            }
+            double r1 = sweep_now_ms();
+            if (left == 0 && !sweep_timeout_fired) {
+                double mib = (double)opt.bench_bytes / (1024.0 * 1024.0);
+                if (w1 > w0) *write_mib_s = mib / ((w1 - w0) / 1000.0);
+                if (r1 > r0) *read_mib_s = mib / ((r1 - r0) / 1000.0);
+                rc = 0;
+            }
+        }
+        close(fd);
+        unlink(path);
+    }
+
+    alarm(0);
+    sigaction(SIGALRM, &old, NULL);
+    sweep_timeout_fired = 0;
+    return rc;
+}
+
+void sweep_mount_options(const char *host, const char *export_path,
+                         const char *workspace, const char *vers) {
+    static const char *combos[] = {
+        "rsize=65536,wsize=65536",
+        "rsize=262144,wsize=262144",
+        "rsize=1048576,wsize=1048576",
+        "rsize=1048576,wsize=1048576,nconnect=4",
+        "rsize=1048576,wsize=1048576,nconnect=8",
+    };
+    const size_t ncombos = sizeof(combos) / sizeof(combos[0]);
+
+    if (opt.verbose) printf("\n[+] Mount option sweep for %s\n", export_path);
+    report_info("mount option sweep started on %s (%zu combinations, %zu bytes each)",
+                export_path, ncombos, opt.bench_bytes);
+
+    char source[4096];
+    compose_source(source, sizeof(source), host, export_path);
+
+    int best = -1;
+    double best_score = -1.0, best_w = 0.0, best_r = 0.0;
+
+    for (size_t i = 0; i < ncombos; i++) {
+        if (received_signal) break;
+        char mp[4096];
+        int n = snprintf(mp, sizeof(mp), "%s/sweep-%zu", workspace, i);
+        if (n < 0 || (size_t)n >= sizeof(mp)) continue;
+        if (make_dir(mp, 0700) != 0) continue;
+
+        char options[2048];
+        snprintf(options, sizeof(options), "vers=%s,nosuid,nodev,noexec,%s",
+                 vers, combos[i]);
+        char output[CMD_OUTPUT_LIMIT];
+        char *argv[] = {"mount", "-t", "nfs", "-o", options, source, mp, NULL};
+        if (run_command_capture(argv, output, sizeof(output)) != 0) {
+            report_info("sweep: mount with %s failed (server or kernel may not support it)", combos[i]);
+            continue;
+        }
+        register_mountpoint(mp);
+
+        double w = 0.0, r = 0.0;
+        if (sweep_benchmark(mp, &w, &r) == 0) {
+            report_ok("sweep %s: write %.1f MiB/s, read %.1f MiB/s", combos[i], w, r);
+            if (w + r > best_score) {
+                best_score = w + r;
+                best = (int)i;
+                best_w = w;
+                best_r = r;
+            }
+        } else {
+            report_warn("sweep: benchmark with %s did not complete", combos[i]);
+        }
+
+        if (unmount_export(mp) != 0)
+            opt.keep_temp = 1;
+    }
+
+    if (best >= 0) {
+        report_ok("sweep best result: %s (write %.1f MiB/s, read %.1f MiB/s)",
+                  combos[best], best_w, best_r);
+        add_recommendation("Mount option sweep suggests: -o vers=%s,%s "
+                           "(measured write %.1f MiB/s, read %.1f MiB/s from this client).",
+                           vers, combos[best], best_w, best_r);
+    } else {
+        report_warn("mount option sweep could not complete any combination");
+    }
+}
+
+/* ---- Kerberos security flavor mount tests ---- */
+
+void test_krb5_mount_flavors(const char *host, const char *export_path,
+                             const char *workspace) {
+    static const char *flavors[] = {"krb5", "krb5i", "krb5p"};
+
+    if (opt.mount_options && strstr(opt.mount_options, "sec=")) {
+        report_info("Kerberos flavor probing skipped: explicit sec= already present in --mount-options");
+        return;
+    }
+    if (opt.verbose) printf("\n[+] Kerberos security flavors for %s\n", export_path);
+
+    char source[4096];
+    compose_source(source, sizeof(source), host, export_path);
+
+    int any = 0;
+    for (size_t i = 0; i < sizeof(flavors) / sizeof(flavors[0]); i++) {
+        if (received_signal) break;
+        char mp[4096];
+        int n = snprintf(mp, sizeof(mp), "%s/krb5-%s", workspace, flavors[i]);
+        if (n < 0 || (size_t)n >= sizeof(mp)) continue;
+        if (make_dir(mp, 0700) != 0) continue;
+
+        char options[256];
+        snprintf(options, sizeof(options), "vers=4,nosuid,nodev,noexec,sec=%s",
+                 flavors[i]);
+        char output[CMD_OUTPUT_LIMIT];
+        char *argv[] = {"mount", "-t", "nfs", "-o", options, source, mp, NULL};
+        if (run_command_capture(argv, output, sizeof(output)) == 0) {
+            register_mountpoint(mp);
+            report_ok("Kerberos mount with sec=%s succeeded", flavors[i]);
+            any = 1;
+            if (unmount_export(mp) != 0)
+                opt.keep_temp = 1;
+        } else {
+            report_info("Kerberos mount with sec=%s failed: %s", flavors[i],
+                        output[0] ? output : "no output");
+        }
+    }
+
+    if (!any) {
+        report_warn("no Kerberos security flavor (krb5/krb5i/krb5p) could be mounted");
+        add_recommendation("Kerberos mounts failed for every flavor: verify the export's sec= list, "
+                           "the server keytab (nfs/<fqdn>), rpc.gssd on the client, and clock sync.");
+    }
 }
 
 int setup_mount_namespace(void) {

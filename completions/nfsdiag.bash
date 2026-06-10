@@ -11,6 +11,7 @@ _nfsdiag() {
         --on-fail-exec --config --timeout --command-timeout --fs-timeout \
         --delay-ms --bench-bytes --bench-iterations --bench-type \
         --stale-iterations --json --html --output-dir --output-format --keep-temp \
+        --parallel --sweep --diff-baseline --listen \
         --self-test --verbose --quiet --version --help"
 
     case "$prev" in
@@ -18,7 +19,7 @@ _nfsdiag() {
             COMPREPLY=($(compgen -W "internal fio" -- "$cur"))
             return ;;
         --output-format)
-            COMPREPLY=($(compgen -W "text table ndjson prometheus" -- "$cur"))
+            COMPREPLY=($(compgen -W "text table ndjson prometheus junit" -- "$cur"))
             return ;;
         --profile)
             COMPREPLY=($(compgen -W "quick safe full performance security readonly" -- "$cur"))
@@ -26,7 +27,8 @@ _nfsdiag() {
         --export|-e|--mount-options|-o|--groups)
             return ;;
         --uid|--gid|--timeout|--command-timeout|--fs-timeout|--delay-ms|\
-        --bench-bytes|--bench-iterations|--stale-iterations|--watch)
+        --bench-bytes|--bench-iterations|--stale-iterations|--watch|\
+        --parallel|--listen)
             return ;;
         --hosts-file|--on-fail-exec|--config|--json|--html|--output-dir)
             _filedir
