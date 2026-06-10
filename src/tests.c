@@ -704,7 +704,7 @@ static void test_nfsv4_delegation(const char *mp, int nfs_version) {
             if (write(fd, "x", 1) == 1) {
                 char b;
                 lseek(fd, 0, SEEK_SET);
-                (void)read(fd, &b, 1);
+                if (read(fd, &b, 1) < 0) { /* only the NFS ops matter, not the data */ }
             }
             close(fd);
             cleanup_test_path(path);

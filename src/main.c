@@ -34,14 +34,14 @@ static int unlink_cb(const char *fpath, const struct stat *sb, int typeflag,
         strncmp(fpath, cleanup_base, base_len) != 0 ||
         (fpath[base_len] != '\0' && fpath[base_len] != '/')) {
         const char msg[] = "[WARN] cleanup: refused path outside workspace\n";
-        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        if (write(STDERR_FILENO, msg, sizeof(msg) - 1) < 0) { /* best effort */ }
         return 0;
     }
     /* Use write() instead of fprintf() so this is safe from atexit context
      * even when stdio may be in an inconsistent state after a signal. */
     if (remove(fpath) != 0 && errno != ENOENT) {
         const char msg[] = "[WARN] cleanup: remove failed\n";
-        (void)write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        if (write(STDERR_FILENO, msg, sizeof(msg) - 1) < 0) { /* best effort */ }
     }
     return 0;
 }
@@ -1176,7 +1176,7 @@ static int run_listen_mode(const char *host) {
             int c = accept(s, NULL, NULL);
             if (c < 0) continue;
             char req[1024];
-            (void)read(c, req, sizeof(req)); /* request body is irrelevant */
+            if (read(c, req, sizeof(req)) < 0) { /* request body is irrelevant */ }
             char hdr[256];
             int hl = snprintf(hdr, sizeof(hdr),
                               "HTTP/1.0 200 OK\r\n"
