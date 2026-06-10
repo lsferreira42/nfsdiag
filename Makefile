@@ -48,6 +48,12 @@ DOCKER_TAG_PREFIX ?= nfsdiag-fixture
 #   staticFunction -> functions declared in nfsdiag.h and used cross-TU; --force
 #                     analyses each .c in isolation and cannot see the usage
 #   normalCheckLevelMaxBranches / checkersReport -> informational notes only
+#   readdirCalled -> suggests readdir_r, which is deprecated by glibc; nfsdiag
+#                    is single-threaded so readdir is safe
+#   unmatchedSuppression -> different cppcheck versions emit different finding
+#                           sets, so some suppressions are unmatched on any
+#                           given version; without this the CI and local runs
+#                           need version-specific suppression lists
 CPPCHECK ?= cppcheck
 CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--platform=unix64 --force --inline-suppr --error-exitcode=1 \
@@ -56,6 +62,8 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=checkersReport \
 	--suppress='*:*/tirpc/*' \
 	--suppress=staticFunction \
+	--suppress=readdirCalled \
+	--suppress=unmatchedSuppression \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
 .PHONY: all clean distclean rebuild check test-unit cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major

@@ -195,6 +195,8 @@ static void load_config_file(const char *path) {
     }
     FILE *f = fdopen(fd, "r");
     if (!f) {
+        /* fdopen() does not close the fd on failure */
+        // cppcheck-suppress doubleFree
         close(fd);
         return;
     }
@@ -327,7 +329,6 @@ static void remember_argv(int argc, char **argv) {
     for (int i = 0; i < argc; i++) {
         const char *arg = argv[i] ? argv[i] : "";
         char clean[512];
-        size_t j = 0;
         /* Mount options may carry sensitive material (paths, credentials in
          * future sec= flavors); redact their values in the evidence record. */
         if (redact_next) {
@@ -341,6 +342,7 @@ static void remember_argv(int argc, char **argv) {
         } else if (strncmp(arg, "-o", 2) == 0 && arg[2] != '\0') {
             snprintf(clean, sizeof(clean), "-o<redacted>");
         } else {
+            size_t j = 0;
             for (const unsigned char *p = (const unsigned char *)arg; *p && j + 1 < sizeof(clean); p++) {
                 clean[j++] = (*p < 0x20 || *p == 0x7f) ? '?' : (char)*p;
             }
@@ -401,6 +403,8 @@ static FILE *fopen_private(const char *path) {
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) return NULL;
     FILE *f = fdopen(fd, "w");
+    /* fdopen() does not close the fd on failure */
+    // cppcheck-suppress doubleFree
     if (!f) close(fd);
     return f;
 }

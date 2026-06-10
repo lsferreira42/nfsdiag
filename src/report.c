@@ -408,6 +408,8 @@ void write_json_report(const char *host) {
             return;
         }
         f = fdopen(fd, "w");
+        /* fdopen() does not close the fd on failure */
+        // cppcheck-suppress doubleFree
         if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
         f = open_saved_stdout_stream();
@@ -426,6 +428,8 @@ int write_json_report_file(const char *host, const char *path) {
     int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0600);
     if (fd < 0) return -1;
     FILE *f = fdopen(fd, "w");
+    /* fdopen() does not close the fd on failure */
+    // cppcheck-suppress doubleFree
     if (!f) { close(fd); return -1; }
     json_emit(f, host);
     fclose(f);
@@ -464,6 +468,8 @@ void write_html_report(const char *host) {
             return;
         }
         f = fdopen(fd, "w");
+        /* fdopen() does not close the fd on failure */
+        // cppcheck-suppress doubleFree
         if (!f) { close(fd); return; }
     } else if (saved_stdout_fd >= 0) {
         f = open_saved_stdout_stream();
