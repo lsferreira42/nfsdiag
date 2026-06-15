@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>404 — nfsdiag</title>
+    <meta name="robots" content="noindex" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="stylesheet" href="/assets/site.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("nfsdiag-theme");
+          if (t === "dark" || t === "light") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <main class="page" id="top">
+      <div class="manhead" aria-hidden="true">
+        <span>NFSDIAG(404)</span>
+        <span>Page Not Found</span>
+        <span>NFSDIAG(404)</span>
+      </div>
+
+      <section class="section">
+        <h2 class="section__title">404 — no such file or directory</h2>
+        <pre><code class="block">$ nfsdiag --export /this/page nfsdiag.org
+[FAIL] mount attempt failed: No such file or directory (ENOENT)</code></pre>
+        <p>
+          The page you asked for is not exported by this server. Try the
+          <a href="/">home page</a> or the <a href="/docs.html">documentation</a>.
+        </p>
+      </section>
+    </main>
+  </body>
+</html>

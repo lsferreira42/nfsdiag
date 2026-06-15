@@ -1,5 +1,5 @@
 pkgname=nfsdiag
-pkgver=0.7.0
+pkgver=0.10.0
 pkgrel=1
 pkgdesc='Client-side NFS diagnostic tool'
 arch=('x86_64' 'aarch64')
@@ -10,7 +10,7 @@ makedepends=('gcc' 'make' 'pkgconf')
 optdepends=('nfs-utils: live NFS mount diagnostics'
             'fio: optional fio benchmark backend')
 source=("https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v${pkgver}.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('93cbb1295bba48f1a732c90ae358ab199ac1d22e97cc809dd8bb62c193cd08ce')
 
 build() {
   cd "${pkgname}-${pkgver}"
@@ -25,4 +25,9 @@ check() {
 package() {
   cd "${pkgname}-${pkgver}"
   make DESTDIR="$pkgdir" PREFIX=/usr install
+  if [ -f LICENSE ]; then
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    rm -f "$pkgdir/usr/share/doc/$pkgname/LICENSE"
+    rmdir "$pkgdir/usr/share/doc/$pkgname" 2>/dev/null || true
+  fi
 }

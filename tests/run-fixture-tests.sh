@@ -9,6 +9,7 @@ TEST_TIMEOUT=${TEST_TIMEOUT:-120}
 ALL_FIXTURES="rpcbind-unreachable nfs-port-unreachable rpc-map-missing-nfs mountd-unavailable locking-missing read-only-export root-squash identity-denied permission-denied empty-exports mount-denied acl-unsupported stale-handle slow-performance"
 
 if [ "${1:-}" = "--list" ]; then
+    # shellcheck disable=SC2086  # intentional word splitting of the fixture list
     printf '%s\n' ${ALL_FIXTURES}
     exit 0
 fi

@@ -4,6 +4,7 @@ todo.*
 build/
 *E.md
 *l.md
+*1.md
 .wrangler/
 .dev.vars
 .dev.vars.*

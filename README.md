@@ -46,7 +46,7 @@ It is not magic, and it will not replace a good server-side analysis. But it nar
 - check for pNFS layouts via `/proc/self/mountstats`
 - run external `fio` benchmarks alongside internal smoke tests
 - generate JSON and HTML reports; stream NDJSON; emit Prometheus metrics or JUnit XML
-- serve Prometheus metrics continuously over HTTP with `--listen PORT`
+- serve Prometheus metrics continuously over HTTP with `--listen [ADDR:]PORT` (binds 127.0.0.1 by default)
 - keep a per-host baseline and compare each run against it with `--diff-baseline`
 - emit event categories, stable `check_id` values and remediation text for automation
 - write evidence bundles with `--output-dir`
@@ -130,7 +130,7 @@ Additional packaging templates live under `packaging/`:
 - `packaging/Dockerfile` for the OCI image
 - `packaging/homebrew/nfsdiag.rb`
 - `packaging/aur/PKGBUILD`
-- `packaging/nix/flake.nix`
+- `flake.nix`
 
 Pre-built binaries (amd64 and arm64), packages, SBOM, checksums and provenance
 are attached to GitHub releases.
@@ -344,6 +344,7 @@ man docs/nfsdiag.8           # view locally
 
 ```text
 Usage: nfsdiag [OPTIONS] <server-ip-or-hostname>
+       nfsdiag diff <before.json> <after.json>   Compare two JSON reports
 
 Diagnostic options:
   -e, --export PATH          Test only this export path (repeatable, up to 64)
@@ -364,7 +365,7 @@ Diagnostic options:
       --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback
       --mount-namespace      Use private mount namespace (needs root/CAP_SYS_ADMIN)
       --no-mount-namespace   Disable automatic private mount namespace
-      --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes
+      --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes (alias: --deep)
       --allow-risky-mount-options
                               Permit risky mount options such as exec/suid/dev
                               and skip the default nosuid,nodev,noexec hardening
@@ -391,7 +392,8 @@ Output options:
       --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)
       --output-dir DIR       Write JSON, HTML, evidence and checksums to DIR
       --output-format FMT    Terminal output format: text (default), table, ndjson, prometheus, junit
-      --listen PORT          Serve Prometheus metrics over HTTP on PORT;
+      --listen [ADDR:]PORT   Serve Prometheus metrics over HTTP; binds 127.0.0.1
+                              unless ADDR is given ([V6ADDR]:PORT for IPv6);
                               re-runs diagnostics every --watch SEC (default 60)
       --keep-temp            Keep temp workspace after tests
   -v, --verbose              Show all diagnostic steps
@@ -483,3 +485,6 @@ Each target updates `VERSION`, `src/nfsdiag.h`, and all packaging files atomical
 - ACL info depends on what the NFS client exposes
 - Performance numbers are smoke-test values, not full benchmarks
 - Docker fixture tests depend on host kernel and Docker privileges
+- The `--listen` Prometheus exporter has no authentication or TLS; it binds
+  `127.0.0.1` by default and should only be exposed behind a trusted network
+  or reverse proxy

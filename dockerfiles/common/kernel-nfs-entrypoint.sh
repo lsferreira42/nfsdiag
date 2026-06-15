@@ -22,6 +22,7 @@ chown "${EXPORT_OWNER:-root:root}" "${fixture_target}" 2>/dev/null || true
 chmod "${EXPORT_MODE:-0777}" "${fixture_target}" 2>/dev/null || true
 
 if [ -n "${NETEM:-}" ]; then
+    # shellcheck disable=SC2086  # NETEM is a space-separated argument list (e.g. "delay 200ms")
     tc qdisc add dev eth0 root netem ${NETEM} || echo "[fixture] failed to apply netem: ${NETEM}"
 fi
 

@@ -92,16 +92,6 @@ static void install_cleanup_handlers(void) {
 
 /* ---- CLI helpers ---- */
 
-static int parse_ulong_arg(const char *s, unsigned long *out) {
-    if (!s || *s == '\0') return -1;
-    char *end = NULL;
-    errno = 0;
-    unsigned long v = strtoul(s, &end, 10);
-    if (errno || !end || end == s || *end != '\0') return -1;
-    *out = v;
-    return 0;
-}
-
 static int parse_groups_arg(const char *s) {
     char *copy = strdup(s);
     if (!copy) return -1;
@@ -278,8 +268,13 @@ static void load_config_file(const char *path) {
             opt.sweep = 1;
         else if (strcmp(key, "parallel") == 0 && parse_ulong_arg(val, &num) == 0 && num >= 1 && num <= MAX_PARALLEL)
             opt.parallel = (int)num;
-        else if (strcmp(key, "listen") == 0 && parse_ulong_arg(val, &num) == 0 && num >= 1 && num <= 65535)
-            opt.listen_port = (int)num;
+        else if (strcmp(key, "listen") == 0) {
+            char reason[256];
+            if (parse_listen_arg(val, opt.listen_addr, sizeof(opt.listen_addr),
+                                 &opt.listen_port, reason, sizeof(reason)) != 0)
+                fprintf(stderr, "[WARN] config: ignoring invalid listen value '%s' (%s)\n",
+                        val, reason);
+        }
         else if (strcmp(key, "diff-baseline") == 0 && strcmp(val, "true") == 0)
             opt.diff_baseline = 1;
         /* Unknown keys are silently ignored for forward-compatibility */
@@ -510,6 +505,7 @@ static int run_self_test(void) {
 
 static void usage(const char *p) {
     printf("Usage: %s [OPTIONS] <server-ip-or-hostname>\n", p);
+    printf("       %s diff <before.json> <after.json>   Compare two JSON reports\n", p);
     printf("\nDiagnostic options:\n");
     printf("  -e, --export PATH          Test only this export path (repeatable, up to %d)\n", MAX_CLI_EXPORTS);
     printf("  -o, --mount-options OPTS   Extra mount options passed to mount(8)\n");
@@ -529,7 +525,7 @@ static void usage(const char *p) {
     printf("      --no-nfs4-discovery    Disable NFSv4 pseudo-root fallback\n");
     printf("      --mount-namespace      Use private mount namespace (needs root/CAP_SYS_ADMIN)\n");
     printf("      --no-mount-namespace   Disable automatic private mount namespace\n");
-    printf("      --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes\n");
+    printf("      --dangerous-fs-tests   Enable symlink/hardlink/FIFO/device-node probes (alias: --deep)\n");
     printf("      --allow-risky-mount-options\n");
     printf("                              Permit risky mount options such as exec/suid/dev\n");
     printf("                              and skip the default nosuid,nodev,noexec hardening\n");
@@ -553,7 +549,8 @@ static void usage(const char *p) {
     printf("      --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)\n");
     printf("      --output-dir DIR       Write JSON, HTML, evidence and checksums to DIR\n");
     printf("      --output-format FMT    Terminal output: text (default), table, ndjson, prometheus, junit\n");
-    printf("      --listen PORT          Serve Prometheus metrics over HTTP on PORT;\n");
+    printf("      --listen [ADDR:]PORT   Serve Prometheus metrics over HTTP; binds 127.0.0.1\n");
+    printf("                              unless ADDR is given ([V6ADDR]:PORT for IPv6);\n");
     printf("                              re-runs diagnostics every --watch SEC (default 60)\n");
     printf("      --keep-temp            Keep temp workspace after tests\n");
     printf("  -v, --verbose              Show all diagnostic steps\n");
@@ -969,8 +966,11 @@ static int run_diagnostics_for_host(const char *host) {
     if (prepare_output_dir(host) != 0)
         return 2;
 
-    printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
     enable_report_only_output();
+    /* The banner is for humans: machine formats (ndjson, prometheus, junit)
+     * must emit nothing on stdout besides the format itself. */
+    if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+        printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
     warn_risky_mount_options(opt.mount_options);
 
     check_client_daemons();
@@ -990,7 +990,8 @@ static int run_diagnostics_for_host(const char *host) {
     if (opt.no_mount) {
         report_info("mount and live filesystem diagnostics skipped by --no-mount");
         print_interpretation();
-        printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
+        if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+            printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
         write_json_report(host);
         write_html_report(host);
         write_table_report(host);
@@ -1096,7 +1097,8 @@ static int run_diagnostics_for_host(const char *host) {
     else { cleanup_temp_tree(); report_ok("temporary workspace removed"); }
 
     print_interpretation();
-    printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
+    if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+        printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
     write_json_report(host);
     write_html_report(host);
     write_table_report(host);
@@ -1112,48 +1114,53 @@ static int run_diagnostics_for_host(const char *host) {
     return summary_fail || summary_warn ? 1 : 0;
 }
 
-/* ---- embedded Prometheus exporter (--listen PORT) ---- */
+/* ---- embedded Prometheus exporter (--listen [ADDR:]PORT) ---- */
 
 static int run_listen_mode(const char *host) {
     int port = opt.listen_port;
-    int s = socket(AF_INET6, SOCK_STREAM, 0);
-    int used_v6 = 1;
-    if (s >= 0) {
-        int off = 0, on = 1;
-        setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-        struct sockaddr_in6 a6;
-        memset(&a6, 0, sizeof(a6));
-        a6.sin6_family = AF_INET6;
-        a6.sin6_addr = in6addr_any;
-        a6.sin6_port = htons((uint16_t)port);
-        if (bind(s, (struct sockaddr *)&a6, sizeof(a6)) != 0) {
-            close(s);
-            s = -1;
-        }
+    /* Default to loopback: the exporter has no authentication, so exposing
+     * it beyond the local host must be an explicit decision. */
+    const char *addr = opt.listen_addr[0] ? opt.listen_addr : "127.0.0.1";
+    char portstr[16];
+    snprintf(portstr, sizeof(portstr), "%d", port);
+
+    struct addrinfo hints, *res = NULL;
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_family   = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_flags    = AI_PASSIVE | AI_NUMERICSERV;
+    int gai = getaddrinfo(addr, portstr, &hints, &res);
+    if (gai != 0) {
+        fprintf(stderr, "Error: cannot resolve listen address %s: %s\n",
+                addr, gai_strerror(gai));
+        return 2;
     }
-    if (s < 0) {
-        used_v6 = 0;
-        s = socket(AF_INET, SOCK_STREAM, 0);
-        if (s < 0) {
-            fprintf(stderr, "Error: cannot create listen socket: %s\n", strerror(errno));
-            return 2;
-        }
+    int s = -1;
+    int bind_errno = 0;
+    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
+        s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
+        if (s < 0) { bind_errno = errno; continue; }
         int on = 1;
         setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-        struct sockaddr_in a4;
-        memset(&a4, 0, sizeof(a4));
-        a4.sin_family = AF_INET;
-        a4.sin_addr.s_addr = htonl(INADDR_ANY);
-        a4.sin_port = htons((uint16_t)port);
-        if (bind(s, (struct sockaddr *)&a4, sizeof(a4)) != 0) {
-            fprintf(stderr, "Error: cannot bind port %d: %s\n", port, strerror(errno));
-            close(s);
-            return 2;
+        if (ai->ai_family == AF_INET6) {
+            /* "[::]:PORT" keeps the historical dual-stack behaviour */
+            int off = 0;
+            setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
         }
+        if (bind(s, ai->ai_addr, ai->ai_addrlen) == 0) break;
+        bind_errno = errno;
+        close(s);
+        s = -1;
+    }
+    freeaddrinfo(res);
+    if (s < 0) {
+        fprintf(stderr, "Error: cannot bind %s port %d: %s\n",
+                addr, port, strerror(bind_errno));
+        return 2;
     }
     if (listen(s, 16) != 0) {
-        fprintf(stderr, "Error: listen failed on port %d: %s\n", port, strerror(errno));
+        fprintf(stderr, "Error: listen failed on %s port %d: %s\n",
+                addr, port, strerror(errno));
         close(s);
         return 2;
     }
@@ -1161,7 +1168,7 @@ static int run_listen_mode(const char *host) {
 
     int interval = opt.watch_interval > 0 ? opt.watch_interval : 60;
     printf("[listen] serving Prometheus metrics on %s port %d, refreshing every %ds\n",
-           used_v6 ? "[::]" : "0.0.0.0", port, interval);
+           addr, port, interval);
 
     char *snapshot = NULL;
     int overall = 0;
@@ -1294,24 +1301,24 @@ int main(int argc, char **argv) {
         case 1002: opt.write_test = 0; break;
         case 1019: opt.dry_run = 1; break;
         case 1003:
-            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --uid: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --uid: %s (expected a non-negative integer)\n", optarg); return 2; }
             add_identity((uid_t)value, default_gid_for_uid((uid_t)value));
             break;
         case 1004:
-            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --gid: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --gid: %s (expected a non-negative integer)\n", optarg); return 2; }
             if (opt.identity_count == 0) add_identity(geteuid(), (gid_t)value);
             else opt.gids[opt.identity_count - 1] = (gid_t)value;
             break;
         case 1005:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --timeout: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             opt.timeout_sec = (int)value;
             break;
         case 1006:
-            if (parse_ulong_arg(optarg, &value) != 0 || value > 1000000UL) { fprintf(stderr, "invalid --stale-iterations: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value > 1000000UL) { fprintf(stderr, "invalid --stale-iterations: %s (0-1000000)\n", optarg); return 2; }
             opt.stale_iterations = (int)value;
             break;
         case 1007:
-            if (parse_ulong_arg(optarg, &value) != 0 || value > (1024UL * 1024UL * 1024UL)) { fprintf(stderr, "invalid --bench-bytes: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value > (1024UL * 1024UL * 1024UL)) { fprintf(stderr, "invalid --bench-bytes: %s (0-1073741824 bytes)\n", optarg); return 2; }
             opt.bench_bytes = (size_t)value;
             break;
         case 1022:
@@ -1322,7 +1329,7 @@ int main(int argc, char **argv) {
             opt.bench_type = optarg;
             break;
         case 1008:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --command-timeout: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --command-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             opt.command_timeout_sec = (int)value;
             break;
         case 1009: opt.mount_namespace = 1; break;
@@ -1335,22 +1342,22 @@ int main(int argc, char **argv) {
             opt.html_path = optarg ? optarg : "-";
             break;
         case 1011:
-            if (parse_groups_arg(optarg) != 0) { fprintf(stderr, "invalid --groups: %s\n", optarg); return 2; }
+            if (parse_groups_arg(optarg) != 0) { fprintf(stderr, "invalid --groups: %s (comma-separated GIDs, max 64)\n", optarg); return 2; }
             break;
         case 1012: opt.udp_checks = 1; break;
         case 1013: opt.address_family = AF_INET; break;
         case 1014: opt.address_family = AF_INET6; break;
         case 1015: opt.nfs4_discovery = 0; break;
         case 1016:
-            if (parse_ulong_arg(optarg, &value) != 0 || value > 100000UL) { fprintf(stderr, "invalid --bench-iterations: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value > 100000UL) { fprintf(stderr, "invalid --bench-iterations: %s (0-100000)\n", optarg); return 2; }
             opt.bench_iterations = (int)value;
             break;
         case 1017:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --fs-timeout: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --fs-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             opt.fs_timeout_sec = (int)value;
             break;
         case 1020:
-            if (parse_ulong_arg(optarg, &value) != 0 || value > 600000) { fprintf(stderr, "invalid --delay-ms: %s\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value > 600000) { fprintf(stderr, "invalid --delay-ms: %s (0-600000 ms)\n", optarg); return 2; }
             opt.delay_ms = (int)value;
             break;
         case 1018: opt.krb5 = 1; break;
@@ -1385,13 +1392,15 @@ int main(int argc, char **argv) {
             }
             opt.parallel = (int)value;
             break;
-        case 1036:
-            if (parse_ulong_arg(optarg, &value) != 0 || value < 1 || value > 65535) {
-                fprintf(stderr, "invalid --listen: %s (1-65535)\n", optarg);
+        case 1036: {
+            char reason[256];
+            if (parse_listen_arg(optarg, opt.listen_addr, sizeof(opt.listen_addr),
+                                 &opt.listen_port, reason, sizeof(reason)) != 0) {
+                fprintf(stderr, "invalid --listen: %s (%s)\n", optarg, reason);
                 return 2;
             }
-            opt.listen_port = (int)value;
             break;
+        }
         case 1037: opt.diff_baseline = 1; break;
         default:
             usage(argv[0]);

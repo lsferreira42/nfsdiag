@@ -9,8 +9,10 @@ TARGETS := fuzz_xdr_exports fuzz_mountstats fuzz_mountinfo fuzz_rpcstats
 
 all: $(TARGETS)
 
-fuzz_xdr_exports: fuzz_xdr_exports.c
-	$(CLANG) $(FUZZ_CFLAGS) $(TIRPC_CFLAGS) $< -o $@ $(TIRPC_LIBS)
+# Includes src/rpc.c to fuzz the real decoder; validation.c provides
+# validate_export_path for the included code.
+fuzz_xdr_exports: fuzz_xdr_exports.c ../../src/rpc.c ../../src/validation.c
+	$(CLANG) $(FUZZ_CFLAGS) $(TIRPC_CFLAGS) -D_GNU_SOURCE $< ../../src/validation.c -o $@ $(TIRPC_LIBS)
 
 fuzz_mountstats: fuzz_mountstats.c
 	$(CLANG) $(FUZZ_CFLAGS) $< -o $@

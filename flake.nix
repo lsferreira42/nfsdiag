@@ -12,11 +12,11 @@
       packages = forAllSystems (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nfsdiag";
-          version = "0.7.0";
-          src = ../..;
+          version = "0.10.0";
+          src = self;
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.libtirpc ];
-          makeFlags = [ "PREFIX=$(out)" ];
+          makeFlags = [ "PREFIX=${placeholder "out"}" ];
           installTargets = [ "install" ];
           meta = with pkgs.lib; {
             description = "Client-side NFS diagnostic tool";

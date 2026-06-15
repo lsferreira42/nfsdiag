@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.9.0"
+#define NFSDIAG_VERSION "0.10.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -131,6 +131,7 @@ struct options {
     int sweep;                     /* benchmark rsize/wsize/nconnect combos    */
     int parallel;                  /* >1 = concurrent export workers           */
     int listen_port;               /* >0 = serve Prometheus metrics over HTTP  */
+    char listen_addr[256];         /* bind address; empty = 127.0.0.1          */
     int diff_baseline;             /* compare with and update saved baseline   */
     size_t bench_bytes;
     gid_t supplemental_groups[MAX_SUPP_GROUPS];
@@ -357,10 +358,13 @@ void check_nfsfs_servers(const char *mountpoint);
 
 /* ---- validation.c ---- */
 
+int parse_ulong_arg(const char *s, unsigned long *out);
 int validate_host_arg(const char *host, char *reason, size_t reason_sz);
 int validate_export_path(const char *path, char *reason, size_t reason_sz);
 int validate_mount_options(const char *opts, int allow_risky,
                            char *reason, size_t reason_sz);
+int parse_listen_arg(const char *arg, char *addr_out, size_t addr_sz,
+                     int *port_out, char *reason, size_t reason_sz);
 void warn_risky_mount_options(const char *opts);
 const char *event_category_for_message(const char *level, const char *message);
 void event_check_id(char *dst, size_t dst_sz, const char *level,

@@ -32,7 +32,7 @@ jobs:
       image: ${{ matrix.image }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install build dependencies
         run: ${{ matrix.install }}
@@ -46,13 +46,63 @@ jobs:
       - name: Generate SBOM
         run: make sbom
 
+  # ---- repo consistency: versions and CLI/docs parity ----
+  consistency:
+    name: version & docs consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
+
+      - name: Build
+        run: make
+
+      - name: Check version strings agree everywhere
+        run: sh tests/check-versions.sh
+
+      - name: Check --help is mirrored in README, man, website, completions
+        run: sh tests/check-cli-docs.sh
+
+  # ---- shellcheck on all shell scripts ----
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install shellcheck
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q shellcheck
+
+      - name: Run shellcheck
+        run: shellcheck tests/*.sh dockerfiles/common/*.sh
+
+  # ---- static analysis: cppcheck ----
+  cppcheck:
+    name: cppcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q cppcheck pkg-config libtirpc-dev
+
+      - name: Run cppcheck
+        run: make cppcheck
 
   # ---- static analysis: clang-tidy ----
   clang-tidy:
     name: clang-tidy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install dependencies
         run: |
@@ -70,11 +120,97 @@ jobs:
             $(pkg-config --cflags libtirpc) \
             -D_GNU_SOURCE
 
+  # ---- runtime checks: ASan/UBSan + valgrind ----
+  sanitizers:
+    name: sanitizers & valgrind
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev valgrind
+
+      - name: Build with ASan + UBSan
+        run: make "CFLAGS=-O1 -g -Wall -Wextra -fsanitize=address,undefined -fno-sanitize-recover=all" "LDFLAGS=-fsanitize=address,undefined" rebuild
+
+      - name: Self-check under sanitizers
+        run: make check
+
+      - name: No-mount run under sanitizers
+        run: ./nfsdiag --no-mount --timeout 2 127.0.0.1 || test $? -eq 1
+
+      - name: Rebuild without sanitizers for valgrind
+        run: make rebuild
+
+      - name: Valgrind self-test
+        run: valgrind --error-exitcode=99 --leak-check=full ./nfsdiag --self-test
+
+      - name: Valgrind no-mount run
+        run: valgrind --error-exitcode=99 --leak-check=full ./nfsdiag --no-mount --timeout 2 127.0.0.1 || test $? -eq 1
+
+  # ---- machine-readable output validation ----
+  output-formats:
+    name: output formats (jq/xmllint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev jq libxml2-utils
+
+      - name: Build
+        run: make
+
+      - name: JSON report is valid JSON
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --json=- 127.0.0.1 || true)
+          echo "$out" | jq empty
+
+      - name: NDJSON stream is valid
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --output-format ndjson 127.0.0.1 || true)
+          echo "$out" | jq -s 'length > 0' | grep -q true
+
+      - name: JUnit output is valid XML
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --output-format junit 127.0.0.1 || true)
+          echo "$out" | xmllint --noout -
+
+      - name: Prometheus output has only comments and samples
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --output-format prometheus 127.0.0.1 || true)
+          echo "$out" | grep -q '^# HELP nfsdiag_summary_ok'
+          ! echo "$out" | grep -vE '^(#|[a-zA-Z_:][a-zA-Z0-9_:]*(\{[^}]*\})? [0-9.eE+-]+$|$)'
+
+      - name: HTML report starts with doctype
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --html=- 127.0.0.1 || true)
+          echo "$out" | head -1 | grep -q '<!DOCTYPE html>'
+
+  # ---- fuzzing smoke run (5s per target) ----
+  fuzz-smoke:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang pkg-config libtirpc-dev
+
+      - name: Build and run fuzz targets
+        run: make -C tests/fuzz run-all
+
   fixture-tests:
     name: docker fixtures (rootless subset)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Install build dependencies
         run: |
@@ -91,6 +227,29 @@ jobs:
           make test-fixture-rpc-map-missing-nfs
           make test-fixture-mountd-unavailable
 
+  # ---- privileged fixtures: live NFS mounts inside the runner ----
+  fixture-tests-privileged:
+    name: docker fixtures (privileged, live mounts)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev nfs-common
+
+      - name: Load kernel NFS modules
+        run: sudo modprobe nfs && sudo modprobe nfsd
+
+      - name: Build
+        run: make
+
+      # The fixture runner skips scenarios the host cannot support, so this
+      # asserts only that no *runnable* scenario fails.
+      - name: Run all fixtures as root
+        run: sudo -E make test-fixtures
+
   codeql:
     name: CodeQL
     runs-on: ubuntu-latest
@@ -98,8 +257,8 @@ jobs:
       security-events: write
       contents: read
     steps:
-      - uses: actions/checkout@v4
-      - uses: github/codeql-action/init@v3
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: github/codeql-action/init@b0c4fd77f6c559021d78430ec4d0d169ae74a4eb # v3
         with:
           languages: c-cpp
       - name: Install build dependencies
@@ -108,4 +267,36 @@ jobs:
           sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
       - name: Build for CodeQL
         run: make rebuild
-      - uses: github/codeql-action/analyze@v3
+      - uses: github/codeql-action/analyze@b0c4fd77f6c559021d78430ec4d0d169ae74a4eb # v3
+
+  # ---- coverage report (informational artifact) ----
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev lcov
+
+      - name: Build with coverage
+        run: make "CFLAGS=-O0 -g --coverage" "LDFLAGS=--coverage" rebuild
+
+      - name: Exercise the binary
+        run: |
+          make test-unit "CFLAGS=-O0 -g --coverage" "LDFLAGS=--coverage"
+          ./nfsdiag --self-test
+          ./nfsdiag --no-mount --timeout 2 --json=- 127.0.0.1 > /dev/null || true
+          ./nfsdiag --no-mount --timeout 2 --output-format junit 127.0.0.1 > /dev/null || true
+
+      - name: Generate lcov report
+        run: |
+          lcov --capture --directory src --output-file coverage.info
+          lcov --list coverage.info
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: coverage.info

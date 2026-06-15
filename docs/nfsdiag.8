@@ -1,4 +1,4 @@
-.TH NFSDIAG 8 "2025" "nfsdiag 0.7.0" "System Administration"
+.TH NFSDIAG 8 "2026-06-12" "nfsdiag 0.10.0" "System Administration"
 .SH NAME
 nfsdiag \- NFS server diagnostic tool
 .SH SYNOPSIS
@@ -95,6 +95,7 @@ tests when running as root.
 .B \-\-dangerous\-fs\-tests
 Enable symlink, hardlink, FIFO, and device-node creation probes. These are useful
 for diagnostics but are intentionally opt-in for production exports.
+\fB\-\-deep\fR is an alias.
 .TP
 .B \-\-allow\-risky\-mount\-options
 Permit risky mount options such as \fBexec\fR, \fBsuid\fR, and \fBdev\fR.
@@ -178,10 +179,12 @@ Emit metrics in OpenMetrics/Prometheus text format at end of run.
 Emit JUnit XML for CI pipelines (fail \(-> failure, warn \(-> skipped).
 .RE
 .TP
-.BI \-\-listen " PORT"
-Serve Prometheus metrics over HTTP on \fIPORT\fR. Diagnostics re-run every
-\fB\-\-watch\fR seconds (default 60); the latest snapshot is served between
-runs.
+.BI \-\-listen " [ADDR:]PORT"
+Serve Prometheus metrics over HTTP. Binds to \fB127.0.0.1\fR unless \fIADDR\fR
+is given (the exporter has no authentication, so exposing it is an explicit
+decision; IPv6 literals need brackets: \fB[::1]:9100\fR). Diagnostics re-run
+every \fB\-\-watch\fR seconds (default 60); the latest snapshot is served
+between runs.
 .TP
 .B \-\-keep\-temp
 Do not delete the temporary mount workspace after tests complete.

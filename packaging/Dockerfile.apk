@@ -12,7 +12,7 @@ WORKDIR /home/builder/source
 
 RUN make
 
-ARG VERSION=0.7.0
+ARG VERSION=0.10.0
 
 RUN echo 'pkgname=nfsdiag' > APKBUILD && \
     echo "pkgver=${VERSION}" >> APKBUILD && \
@@ -27,6 +27,12 @@ RUN echo 'pkgname=nfsdiag' > APKBUILD && \
     echo 'build() { :; }' >> APKBUILD && \
     echo 'package() {' >> APKBUILD && \
     echo '    install -Dm755 nfsdiag "$pkgdir"/usr/bin/nfsdiag' >> APKBUILD && \
+    echo '    gzip -9n < docs/nfsdiag.8 > nfsdiag.8.gz' >> APKBUILD && \
+    echo '    install -Dm644 nfsdiag.8.gz "$pkgdir"/usr/share/man/man8/nfsdiag.8.gz' >> APKBUILD && \
+    echo '    install -Dm644 completions/nfsdiag.bash "$pkgdir"/usr/share/bash-completion/completions/nfsdiag' >> APKBUILD && \
+    echo '    install -Dm644 completions/nfsdiag.zsh "$pkgdir"/usr/share/zsh/site-functions/_nfsdiag' >> APKBUILD && \
+    echo '    install -Dm644 completions/nfsdiag.fish "$pkgdir"/usr/share/fish/vendor_completions.d/nfsdiag.fish' >> APKBUILD && \
+    echo '    install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/nfsdiag/LICENSE' >> APKBUILD && \
     echo '}' >> APKBUILD
 
 RUN abuild -F checksum && abuild -F rootpkg

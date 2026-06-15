@@ -14,6 +14,7 @@ MANDIR ?= $(PREFIX)/share/man/man8
 BASHCOMPDIR ?= $(PREFIX)/share/bash-completion/completions
 ZSHCOMPDIR ?= $(PREFIX)/share/zsh/site-functions
 FISHCOMPDIR ?= $(PREFIX)/share/fish/vendor_completions.d
+DOCDIR ?= $(PREFIX)/share/doc/$(PKG_NAME)
 DESTDIR ?=
 
 TARGET := nfsdiag
@@ -66,7 +67,7 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=unmatchedSuppression \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
-.PHONY: all clean distclean rebuild check test-unit cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild check test-unit cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -121,6 +122,8 @@ install: $(TARGET)
 	install -m 0644 completions/nfsdiag.zsh "$(DESTDIR)$(ZSHCOMPDIR)/_nfsdiag"
 	install -d "$(DESTDIR)$(FISHCOMPDIR)"
 	install -m 0644 completions/nfsdiag.fish "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
+	install -d "$(DESTDIR)$(DOCDIR)"
+	install -m 0644 LICENSE "$(DESTDIR)$(DOCDIR)/LICENSE"
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
@@ -128,6 +131,8 @@ uninstall:
 	rm -f "$(DESTDIR)$(BASHCOMPDIR)/nfsdiag"
 	rm -f "$(DESTDIR)$(ZSHCOMPDIR)/_nfsdiag"
 	rm -f "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
+	rm -f "$(DESTDIR)$(DOCDIR)/LICENSE"
+	-rmdir "$(DESTDIR)$(DOCDIR)" 2>/dev/null || true
 
 # ---- Code coverage (gcov/lcov) ----
 coverage:
@@ -170,7 +175,8 @@ help:
 	@echo "  apk                  Build Alpine package (.apk) via Docker in build/"
 	@echo "  binary-dist          Stage a standalone versioned binary in build/"
 	@echo "  packages             Build all packages plus the standalone binary and SBOM"
-	@echo "  release              Tag, push, and create GitHub release with packages, binary, SBOM, and checksums"
+	@echo "  release              Validate tree, tag v\$$VERSION and push; the release workflow publishes artifacts"
+	@echo "  update-release-checksums  Refresh tarball sha256 in the Homebrew formula and AUR PKGBUILD"
 	@echo ""
 	@echo "Version bumping:"
 	@echo "  bump-version-bugfix  Bump patch version (x.y.Z+1)"
@@ -206,14 +212,25 @@ test-fixture-%: $(TARGET)
 
 deb: $(TARGET)
 	@echo "Building DEB package..."
-	mkdir -p build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/DEBIAN
-	mkdir -p build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/usr/bin
-	install -m 0755 $(TARGET) build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/usr/bin/$(TARGET)
+	$(eval DEB_ROOT := build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH))
+	mkdir -p $(DEB_ROOT)/DEBIAN
+	mkdir -p $(DEB_ROOT)/usr/bin
+	mkdir -p $(DEB_ROOT)/usr/share/man/man8
+	mkdir -p $(DEB_ROOT)/usr/share/bash-completion/completions
+	mkdir -p $(DEB_ROOT)/usr/share/zsh/vendor-completions
+	mkdir -p $(DEB_ROOT)/usr/share/fish/vendor_completions.d
+	mkdir -p $(DEB_ROOT)/usr/share/doc/$(PKG_NAME)
+	install -m 0755 $(TARGET) $(DEB_ROOT)/usr/bin/$(TARGET)
+	gzip -9n < docs/nfsdiag.8 > $(DEB_ROOT)/usr/share/man/man8/nfsdiag.8.gz
+	install -m 0644 completions/nfsdiag.bash $(DEB_ROOT)/usr/share/bash-completion/completions/nfsdiag
+	install -m 0644 completions/nfsdiag.zsh $(DEB_ROOT)/usr/share/zsh/vendor-completions/_nfsdiag
+	install -m 0644 completions/nfsdiag.fish $(DEB_ROOT)/usr/share/fish/vendor_completions.d/nfsdiag.fish
+	install -m 0644 LICENSE $(DEB_ROOT)/usr/share/doc/$(PKG_NAME)/copyright
 	sed -e "s/^Version: .*/Version: $(VERSION)/" \
 	    -e "s/^Architecture: .*/Architecture: $(DEB_ARCH)/" \
-	    packaging/nfsdiag.control > build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)/DEBIAN/control
-	dpkg-deb --root-owner-group --build build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH)
-	mv build/deb/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH).deb build/
+	    packaging/nfsdiag.control > $(DEB_ROOT)/DEBIAN/control
+	dpkg-deb --root-owner-group --build $(DEB_ROOT)
+	mv $(DEB_ROOT).deb build/
 	@echo "DEB: build/$(PKG_NAME)_$(VERSION)_$(DEB_ARCH).deb"
 
 rpm: $(TARGET)
@@ -256,40 +273,40 @@ packages: $(TARGET) sbom binary-dist
 	-$(MAKE) apk
 	@echo "Package build phase completed (see above for any failures)."
 
-release: packages
+# The tag push triggers .github/workflows/release.yml, which is the single
+# canonical builder/publisher of release artifacts. This target only
+# validates the tree and pushes the tag — it never uploads artifacts itself.
+release:
 	@if [ -n "$$(git status --porcelain)" ]; then \
 		echo "Error: working directory is not clean. Commit or stash changes first."; \
 		exit 1; \
 	fi
-	@echo "Creating GitHub release v$(VERSION)..."
+	@if ! grep -q "NFSDIAG_VERSION \"$(VERSION)\"" src/nfsdiag.h; then \
+		echo "Error: VERSION ($(VERSION)) and src/nfsdiag.h disagree. Run 'make bump-packaging'."; \
+		exit 1; \
+	fi
 	@if git rev-parse v$(VERSION) >/dev/null 2>&1; then \
-		echo "Tag v$(VERSION) already exists, skipping tag creation."; \
+		echo "Tag v$(VERSION) already exists."; \
 	else \
 		git tag -a v$(VERSION) -m "Release v$(VERSION)"; \
-		git push origin v$(VERSION); \
 	fi
-	@echo "Generating SHA256SUMS for all artifacts..."
-	@( cd build && rm -f SHA256SUMS; \
-	   for f in *.deb *.rpm *.apk $(BIN_DIST) *.spdx.json; do \
-	       [ -f "$$f" ] && sha256sum "$$f" >> SHA256SUMS; \
-	   done; true )
-	@assets=""; \
-	for f in build/*.deb build/*.rpm build/*.apk build/$(BIN_DIST) build/*.spdx.json build/SHA256SUMS; do \
-		[ -f "$$f" ] && assets="$$assets $$f"; \
-	done; \
-	if [ -n "$$assets" ]; then \
-		echo "Uploading:$$assets"; \
-		gh release create v$(VERSION) $$assets \
-		    --title "v$(VERSION)" \
-		    --notes "Release v$(VERSION)" 2>/dev/null || \
-		gh release upload v$(VERSION) $$assets --clobber; \
-	else \
-		echo "No artifacts found; creating empty release."; \
-		gh release create v$(VERSION) \
-		    --title "v$(VERSION)" \
-		    --notes "Release v$(VERSION)" 2>/dev/null || true; \
-	fi
-	@echo "Release v$(VERSION) done."
+	git push origin v$(VERSION)
+	@echo "Tag v$(VERSION) pushed. The release workflow will build and publish the artifacts."
+	@echo "After the release exists, run 'make update-release-checksums' and commit the result."
+
+# Refresh the source-tarball checksums in the Homebrew formula and the AUR
+# PKGBUILD. Requires the v$(VERSION) tag to exist on GitHub (run after
+# 'make release', then commit the result).
+update-release-checksums:
+	@url="https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v$(VERSION).tar.gz"; \
+	echo "Fetching $$url"; \
+	sha=$$(curl -fsSL "$$url" | sha256sum | cut -d' ' -f1); \
+	[ -n "$$sha" ] || { echo "Error: could not compute sha256"; exit 1; }; \
+	sed -i "s|^  url \".*\"|  url \"$$url\"|; \
+	        s/^  sha256 \".*\"/  sha256 \"$$sha\"/; \
+	        s/^  version \".*\"/  version \"$(VERSION)\"/" packaging/homebrew/nfsdiag.rb; \
+	sed -i "s/^sha256sums=.*/sha256sums=('$$sha')/" packaging/aur/PKGBUILD; \
+	echo "homebrew formula and PKGBUILD updated (sha256 $$sha)"
 
 # --------------------------------------------------------------------------
 # Version bumping
@@ -302,16 +319,25 @@ bump-packaging:
 	sed -i "s/^Version:[[:space:]]*.*/Version:        $$ver/" packaging/nfsdiag.spec; \
 	sed -i "s/^ARG VERSION=.*/ARG VERSION=$$ver/" packaging/Dockerfile.apk; \
 	sed -i "s/^pkgver=.*/pkgver=$$ver/" packaging/aur/PKGBUILD; \
-	sed -i "s/version = \"[^\"]*\";/version = \"$$ver\";/" packaging/nix/flake.nix; \
+	sed -i "s/version = \"[^\"]*\";/version = \"$$ver\";/" flake.nix; \
 	sed -i "s|/v[0-9][0-9.]*\.tar\.gz|/v$$ver.tar.gz|; s/version \"[^\"]*\"/version \"$$ver\"/" packaging/homebrew/nfsdiag.rb; \
 	sed -i "s/\"nfsdiag [^\"]*\"/\"nfsdiag $$ver\"/" docs/nfsdiag.8; \
+	sed -i "s/^\.TH NFSDIAG 8 \"[^\"]*\"/.TH NFSDIAG 8 \"$$(date +%Y-%m-%d)\"/" docs/nfsdiag.8; \
+	sed -i "s/\"softwareVersion\": \"[^\"]*\"/\"softwareVersion\": \"$$ver\"/" website/index.html; \
+	sed -i "s|<lastmod>[^<]*</lastmod>|<lastmod>$$(date +%Y-%m-%d)</lastmod>|g" website/sitemap.xml; \
 	sed -i "s|Current version: <strong>[^<]*</strong>|Current version: <strong>$$ver</strong>|" website/index.html; \
 	sed -i "s|<strong>nfsdiag</strong> v[0-9][0-9.]*|<strong>nfsdiag</strong> v$$ver|" website/docs.html; \
 	sed -i "s/nfsdiag [0-9][0-9.]*: /nfsdiag $$ver: /g" website/index.html website/docs.html; \
 	sed -i "s|nfsdiag <strong>v[^<]*</strong>|nfsdiag <strong>v$$ver</strong>|g" website/index.html website/docs.html website/author.html; \
 	sed -i "s|\(NFSDIAG_VERSION.*\)\"[0-9][^\"]*\"|\1\"$$ver\"|" website/docs.html; \
 	sed -i "s/^Current version: \*\*[^*]*\*\*/Current version: **$$ver**/" CLAUDE.md; \
-	sed -i "s/NFSDIAG_VERSION \"[^\"]*\"/NFSDIAG_VERSION \"$$ver\"/" CLAUDE.md
+	sed -i "s/NFSDIAG_VERSION \"[^\"]*\"/NFSDIAG_VERSION \"$$ver\"/" CLAUDE.md; \
+	if ! grep -q -- "- $$ver-1\$$" packaging/nfsdiag.spec; then \
+		awk -v ver="$$ver" -v d="$$(LC_ALL=C date '+%a %b %d %Y')" \
+		    '{print} /^%changelog/ && !done {print "* " d " Leandro Ferreira <leandrodsferreira@gmail.com> - " ver "-1"; print "- See CHANGELOG.md for details"; done=1}' \
+		    packaging/nfsdiag.spec > packaging/nfsdiag.spec.tmp && \
+		mv packaging/nfsdiag.spec.tmp packaging/nfsdiag.spec; \
+	fi
 
 bump-version-bugfix:
 	@awk -F. '{print $$1"."$$2"."$$3+1}' VERSION > VERSION.tmp && mv VERSION.tmp VERSION

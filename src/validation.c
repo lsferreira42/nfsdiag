@@ -5,6 +5,21 @@ static void set_reason(char *reason, size_t reason_sz, const char *msg) {
         snprintf(reason, reason_sz, "%s", msg);
 }
 
+/* Strict base-10 unsigned parse: rejects empty strings, trailing garbage,
+ * and out-of-range values. Callers must still range-check the result. */
+int parse_ulong_arg(const char *s, unsigned long *out) {
+    if (!s || *s == '\0') return -1;
+    /* strtoul silently accepts sign characters and leading whitespace
+     * ("-1" wraps to ULONG_MAX); only bare digits are valid here. */
+    if (s[0] < '0' || s[0] > '9') return -1;
+    char *end = NULL;
+    errno = 0;
+    unsigned long v = strtoul(s, &end, 10);
+    if (errno || !end || end == s || *end != '\0') return -1;
+    *out = v;
+    return 0;
+}
+
 int validate_host_arg(const char *host, char *reason, size_t reason_sz) {
     if (!host || !host[0]) {
         set_reason(reason, reason_sz, "host is empty");
@@ -72,14 +87,16 @@ int validate_mount_options(const char *opts, int allow_risky,
         }
     }
 
+    /* strtok_r skips empty tokens, so catch them before tokenising */
+    if (opts[0] == ',' || strstr(opts, ",,") || opts[strlen(opts) - 1] == ',') {
+        set_reason(reason, reason_sz, "mount options contain an empty token");
+        return -1;
+    }
+
     char copy[2048];
     snprintf(copy, sizeof(copy), "%s", opts);
     char *save = NULL;
     for (const char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
-        if (!tok[0]) {
-            set_reason(reason, reason_sz, "mount options contain an empty token");
-            return -1;
-        }
         if (!allow_risky &&
             (token_equals(tok, "exec") || token_equals(tok, "suid") || token_equals(tok, "dev"))) {
             snprintf(reason, reason_sz,
@@ -104,6 +121,66 @@ void warn_risky_mount_options(const char *opts) {
         else if (token_equals(tok, "sec") && strcmp(tok, "sec=sys") == 0)
             report_info("mount option sec=sys uses AUTH_SYS; use --krb5 and sec=krb5* for Kerberos validation");
     }
+}
+
+/* Parse a --listen argument: "PORT", "ADDR:PORT", or "[V6ADDR]:PORT".
+ * The bind address defaults to 127.0.0.1 so the exporter is never exposed
+ * beyond the local host unless explicitly requested. */
+int parse_listen_arg(const char *arg, char *addr_out, size_t addr_sz,
+                     int *port_out, char *reason, size_t reason_sz) {
+    if (!arg || !arg[0]) {
+        set_reason(reason, reason_sz, "listen argument is empty");
+        return -1;
+    }
+    char addr[256] = "127.0.0.1";
+    const char *portstr;
+
+    if (arg[0] == '[') {
+        const char *close_b = strchr(arg, ']');
+        if (!close_b || close_b == arg + 1 || close_b[1] != ':' || !close_b[2]) {
+            set_reason(reason, reason_sz, "expected [V6ADDR]:PORT");
+            return -1;
+        }
+        size_t alen = (size_t)(close_b - arg - 1);
+        if (alen >= sizeof(addr)) {
+            set_reason(reason, reason_sz, "listen address is too long");
+            return -1;
+        }
+        memcpy(addr, arg + 1, alen);
+        addr[alen] = '\0';
+        portstr = close_b + 2;
+    } else {
+        const char *colon = strchr(arg, ':');
+        if (colon && colon != strrchr(arg, ':')) {
+            set_reason(reason, reason_sz, "IPv6 listen addresses need brackets: [ADDR]:PORT");
+            return -1;
+        }
+        if (colon) {
+            size_t alen = (size_t)(colon - arg);
+            if (alen == 0) {
+                set_reason(reason, reason_sz, "listen address is empty");
+                return -1;
+            }
+            if (alen >= sizeof(addr)) {
+                set_reason(reason, reason_sz, "listen address is too long");
+                return -1;
+            }
+            memcpy(addr, arg, alen);
+            addr[alen] = '\0';
+            portstr = colon + 1;
+        } else {
+            portstr = arg;
+        }
+    }
+
+    unsigned long port;
+    if (parse_ulong_arg(portstr, &port) != 0 || port < 1 || port > 65535) {
+        set_reason(reason, reason_sz, "listen port must be 1-65535");
+        return -1;
+    }
+    snprintf(addr_out, addr_sz, "%s", addr);
+    *port_out = (int)port;
+    return 0;
 }
 
 const char *event_category_for_message(const char *level, const char *message) {
