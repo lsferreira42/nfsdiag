@@ -6,6 +6,12 @@ canonical changelog; `website/docs.html#changelog` mirrors it.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-06-16
+
+### Changed
+- Trimmed the CI to the build, static-analysis, sanitizer, fuzz, rootless
+  fixture, output-format, CodeQL, and coverage jobs.
+
 ## [0.10.0] - 2026-06-12
 
 Pre-1.0 hardening release: project governance files, packaging completeness,

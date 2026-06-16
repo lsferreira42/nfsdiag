@@ -1,5 +1,5 @@
 Package: nfsdiag
-Version: 0.10.0
+Version: 0.10.1
 Section: utils
 Priority: optional
 Architecture: amd64

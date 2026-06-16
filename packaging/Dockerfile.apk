@@ -12,7 +12,7 @@ WORKDIR /home/builder/source
 
 RUN make
 
-ARG VERSION=0.10.0
+ARG VERSION=0.10.1
 
 RUN echo 'pkgname=nfsdiag' > APKBUILD && \
     echo "pkgver=${VERSION}" >> APKBUILD && \
