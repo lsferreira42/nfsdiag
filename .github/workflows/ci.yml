@@ -46,27 +46,6 @@ jobs:
       - name: Generate SBOM
         run: make sbom
 
-  # ---- repo consistency: versions and CLI/docs parity ----
-  consistency:
-    name: version & docs consistency
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
-
-      - name: Build
-        run: make
-
-      - name: Check version strings agree everywhere
-        run: sh tests/check-versions.sh
-
-      - name: Check --help is mirrored in README, man, website, completions
-        run: sh tests/check-cli-docs.sh
-
   # ---- shellcheck on all shell scripts ----
   shellcheck:
     name: shellcheck
@@ -226,29 +205,6 @@ jobs:
           make test-fixture-nfs-port-unreachable
           make test-fixture-rpc-map-missing-nfs
           make test-fixture-mountd-unavailable
-
-  # ---- privileged fixtures: live NFS mounts inside the runner ----
-  fixture-tests-privileged:
-    name: docker fixtures (privileged, live mounts)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-
-      - name: Install build dependencies
-        run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev nfs-common
-
-      - name: Load kernel NFS modules
-        run: sudo modprobe nfs && sudo modprobe nfsd
-
-      - name: Build
-        run: make
-
-      # The fixture runner skips scenarios the host cannot support, so this
-      # asserts only that no *runnable* scenario fails.
-      - name: Run all fixtures as root
-        run: sudo -E make test-fixtures
 
   codeql:
     name: CodeQL

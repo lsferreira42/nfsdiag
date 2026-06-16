@@ -330,8 +330,6 @@ bump-packaging:
 	sed -i "s/nfsdiag [0-9][0-9.]*: /nfsdiag $$ver: /g" website/index.html website/docs.html; \
 	sed -i "s|nfsdiag <strong>v[^<]*</strong>|nfsdiag <strong>v$$ver</strong>|g" website/index.html website/docs.html website/author.html; \
 	sed -i "s|\(NFSDIAG_VERSION.*\)\"[0-9][^\"]*\"|\1\"$$ver\"|" website/docs.html; \
-	sed -i "s/^Current version: \*\*[^*]*\*\*/Current version: **$$ver**/" CLAUDE.md; \
-	sed -i "s/NFSDIAG_VERSION \"[^\"]*\"/NFSDIAG_VERSION \"$$ver\"/" CLAUDE.md; \
 	if ! grep -q -- "- $$ver-1\$$" packaging/nfsdiag.spec; then \
 		awk -v ver="$$ver" -v d="$$(LC_ALL=C date '+%a %b %d %Y')" \
 		    '{print} /^%changelog/ && !done {print "* " d " Leandro Ferreira <leandrodsferreira@gmail.com> - " ver "-1"; print "- See CHANGELOG.md for details"; done=1}' \

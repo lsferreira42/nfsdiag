@@ -1,7 +1,7 @@
 #!/bin/sh
 # Verify that every long option printed by `nfsdiag --help` is documented in
 # the README, the man page, the website CLI reference, and all three shell
-# completions. `--help` is the source of truth (CLAUDE.md directive 19).
+# completions. `--help` is the source of truth.
 # Run from the repository root with a built ./nfsdiag: sh tests/check-cli-docs.sh
 set -eu
 

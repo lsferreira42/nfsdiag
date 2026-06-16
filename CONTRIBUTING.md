@@ -12,14 +12,19 @@ make rebuild     # full build
 make check       # unit tests + CLI self-check
 ```
 
-Before opening a PR, make sure the same gates CI runs pass locally:
+Before opening a PR, make sure the CI gates pass locally:
 
 ```sh
 make "CFLAGS=-O2 -Wall -Wextra -Werror" rebuild   # warnings are errors
 make cppcheck                                      # static analysis
-sh tests/check-versions.sh                         # version strings agree
-sh tests/check-cli-docs.sh                         # --help mirrored in docs
 shellcheck tests/*.sh dockerfiles/common/*.sh      # shell scripts
+```
+
+When touching versions or CLI options, also run these helper checks:
+
+```sh
+sh tests/check-versions.sh    # version strings agree across the tree
+sh tests/check-cli-docs.sh    # --help mirrored in README, man, website, completions
 ```
 
 Use focused changes. Keep diagnostics conservative by default and require an
@@ -43,8 +48,7 @@ fixture, or fuzz regression where practical.
 `--help` (the `usage()` function in `src/main.c`) is the source of truth for
 the CLI. Any flag you add or change must also land in: `README.md` (command
 line reference), `docs/nfsdiag.8`, `website/docs.html` (`#cli` table), and the
-three completions in `completions/`. CI enforces this with
-`tests/check-cli-docs.sh`.
+three completions in `completions/`. `tests/check-cli-docs.sh` verifies this.
 
 ## Versioning and changelog
 

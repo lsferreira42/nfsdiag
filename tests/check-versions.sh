@@ -58,9 +58,6 @@ expect "website/docs.html footer" \
 expect "website/docs.html NFSDIAG_VERSION row" \
     "$(sed -n 's/.*NFSDIAG_VERSION<\/td><td colspan="3">"\([^"]*\)".*/\1/p' website/docs.html)"
 
-expect "CLAUDE.md 'Current version'" \
-    "$(sed -n 's/^Current version: \*\*\(.*\)\*\*.*/\1/p' CLAUDE.md)"
-
 if [ -x ./nfsdiag ]; then
     expect "./nfsdiag --version" "$(./nfsdiag --version | awk '{print $2}')"
 fi
