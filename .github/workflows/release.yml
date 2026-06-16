@@ -44,6 +44,15 @@ jobs:
       - name: Install libtirpc (arm64) via multiarch
         run: |
           sudo dpkg --add-architecture arm64
+          codename=$(. /etc/os-release && echo "$VERSION_CODENAME")
+          # The stock Ubuntu mirrors serve only amd64/i386, so pin them to
+          # amd64; otherwise apt-get update 404s fetching the arm64 indices.
+          # arm64 packages live on ports.ubuntu.com.
+          sudo sed -i 's/^Types: deb$/Architectures: amd64\nTypes: deb/' \
+            /etc/apt/sources.list.d/ubuntu.sources
+          printf 'Types: deb\nURIs: http://ports.ubuntu.com/ubuntu-ports/\nSuites: %s %s-updates %s-backports %s-security\nComponents: main universe restricted multiverse\nArchitectures: arm64\nSigned-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg\n' \
+            "$codename" "$codename" "$codename" "$codename" \
+            | sudo tee /etc/apt/sources.list.d/arm64-ports.sources >/dev/null
           sudo apt-get update
           sudo apt-get install -y libtirpc-dev:arm64
 
