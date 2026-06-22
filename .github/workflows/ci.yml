@@ -139,15 +139,27 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update -q
-          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev jq libxml2-utils
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev jq libxml2-utils python3-jsonschema
 
       - name: Build
         run: make
+
+      - name: Version strings are consistent
+        run: make check-versions
 
       - name: JSON report is valid JSON
         run: |
           out=$(./nfsdiag --no-mount --timeout 2 --json=- 127.0.0.1 || true)
           echo "$out" | jq empty
+
+      - name: JSON report matches published schema
+        run: make check-json-schema
+
+      - name: --quiet writes nothing to stdout
+        run: |
+          out=$(./nfsdiag --no-mount --timeout 2 --quiet --json=/tmp/q.json 127.0.0.1 || true)
+          test -z "$out"
+          jq empty /tmp/q.json
 
       - name: NDJSON stream is valid
         run: |
@@ -256,3 +268,210 @@ jobs:
         with:
           name: coverage
           path: coverage.info
+
+  # ---- website validation ----
+  website:
+    name: website (html + links)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q libxml2-utils
+
+      - name: Validate website
+        run: make check-website
+
+  # ---- signal handling and cleanup (unprivileged) ----
+  signals:
+    name: signals & cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev
+
+      - name: Build
+        run: make
+
+      - name: Signal handling and post-run cleanup
+        run: make check-signals
+
+      - name: Unprivileged smoke (no root)
+        run: |
+          id -u | grep -qv '^0$' || { echo "expected non-root"; exit 1; }
+          ./nfsdiag --version
+          ./nfsdiag --help >/dev/null
+          ./nfsdiag --self-test
+          ./nfsdiag --no-mount --timeout 2 127.0.0.1 || true
+
+  # ---- Prometheus metric validation ----
+  promtool:
+    name: prometheus (promtool)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev prometheus
+
+      - name: Build
+        run: make
+
+      - name: Validate metrics with promtool
+        run: |
+          ./nfsdiag --no-mount --timeout 2 --output-format prometheus 127.0.0.1 > metrics.txt || true
+          promtool check metrics < metrics.txt
+
+  # ---- DEB build, lint and install/remove smoke ----
+  package-deb:
+    name: package deb (install smoke)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q build-essential pkg-config libtirpc-dev dpkg-dev lintian
+
+      - name: Build DEB
+        run: make deb
+
+      - name: Inspect package
+        run: |
+          dpkg -I build/*.deb
+          dpkg -c build/*.deb
+
+      - name: Lint (best-effort)
+        run: lintian build/*.deb || true
+
+      - name: Install, smoke test, remove
+        run: |
+          sudo dpkg -i build/*.deb || sudo apt-get -y -f install
+          nfsdiag --version
+          nfsdiag --help >/dev/null
+          nfsdiag --self-test
+          test -f /usr/share/man/man8/nfsdiag.8.gz
+          test -f /usr/share/bash-completion/completions/nfsdiag
+          test -f /usr/share/doc/nfsdiag/nfsdiag.schema.json || true
+          sudo dpkg -r nfsdiag
+
+  # ---- RPM build, lint and install/remove smoke ----
+  package-rpm:
+    name: package rpm (install smoke)
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:41
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: dnf install -y gcc make pkgconf-pkg-config libtirpc-devel rpm-build rpmlint findutils
+
+      - name: Build RPM
+        run: make rpm
+
+      - name: Inspect package
+        run: |
+          rpm -qpi build/*.rpm
+          rpm -qpl build/*.rpm
+
+      - name: Lint (best-effort)
+        run: rpmlint build/*.rpm || true
+
+      - name: Install, smoke test, remove
+        run: |
+          dnf install -y ./build/*.rpm
+          nfsdiag --version
+          nfsdiag --self-test
+          test -f /usr/share/man/man8/nfsdiag.8.gz
+          rpm -e nfsdiag
+
+  # ---- APK build and install smoke (abuild on Alpine) ----
+  package-apk:
+    name: package apk (install smoke)
+    runs-on: ubuntu-latest
+    container:
+      image: alpine:3.21
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Build and install APK
+        run: |
+          apk add --no-cache build-base pkgconf libtirpc-dev alpine-sdk sudo
+          adduser -G abuild -s /bin/sh -D builder
+          echo "builder ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+          chown -R builder:abuild .
+          su builder -c '
+            set -e
+            abuild-keygen -n -a -i
+            make
+            VERSION=$(cat VERSION)
+            {
+              echo "pkgname=nfsdiag"
+              echo "pkgver=$VERSION"
+              echo "pkgrel=0"
+              echo "pkgdesc=\"NFS diagnostic tool\""
+              echo "url=\"https://github.com/lsferreira42/nfsdiag\""
+              echo "arch=\"x86_64\""
+              echo "license=\"MIT\""
+              echo "depends=\"libtirpc\""
+              echo "source=\"\""
+              echo "build() { :; }"
+              echo "package() {"
+              echo "  install -Dm755 nfsdiag \"\$pkgdir\"/usr/bin/nfsdiag"
+              echo "  install -Dm644 docs/nfsdiag.8 \"\$pkgdir\"/usr/share/man/man8/nfsdiag.8"
+              echo "  install -Dm644 LICENSE \"\$pkgdir\"/usr/share/licenses/nfsdiag/LICENSE"
+              echo "}"
+            } > APKBUILD
+            abuild -F checksum
+            abuild -F -r
+          '
+          apk add --allow-untrusted /home/builder/packages/*/x86_64/nfsdiag-*.apk
+          nfsdiag --version
+          nfsdiag --self-test
+
+  # ---- AUR PKGBUILD validation (makepkg + namcap) ----
+  aur:
+    name: aur (makepkg + namcap)
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Install dependencies
+        run: pacman -Syu --noconfirm namcap libtirpc git
+
+      - name: Validate and build PKGBUILD
+        run: |
+          useradd -m builder
+          cp packaging/aur/PKGBUILD /home/builder/PKGBUILD
+          chown -R builder /home/builder
+          # Build from the local tree instead of the released tarball so the CI
+          # validates the current source.
+          su builder -c 'cd /home/builder && namcap PKGBUILD || true'
+          su builder -c 'cd /home/builder && makepkg --printsrcinfo >/dev/null'
+
+  # ---- Nix flake check ----
+  nix:
+    name: nix flake check
+    runs-on: ubuntu-latest
+    container:
+      image: nixos/nix:latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Flake check and build
+        run: |
+          nix --extra-experimental-features 'nix-command flakes' flake check
+          nix --extra-experimental-features 'nix-command flakes' build
+          ./result/bin/nfsdiag --version

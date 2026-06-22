@@ -32,6 +32,24 @@ information disclosure, denial of service against the client).
 - Fixes ship as a new release; the advisory is published after the release is
   available. You will be credited unless you ask not to be.
 
+## Verifying downloads
+
+Every release attaches `SHA256SUMS`, a source-level SBOM (`*.spdx.json`, scope
+described in `SBOM-SCOPE.txt`), and signed Sigstore build-provenance
+attestations for the binaries and packages.
+
+```sh
+# Checksums
+sha256sum -c SHA256SUMS
+
+# Signed provenance (needs the GitHub CLI)
+gh attestation verify nfsdiag-linux-amd64 --repo lsferreira42/nfsdiag
+```
+
+A post-publish CI job re-downloads the published binary, checks its checksum,
+runs `--self-test`, and verifies the attestation, so a broken release fails
+visibly.
+
 ## Scope
 
 In scope:

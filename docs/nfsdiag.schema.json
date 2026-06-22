@@ -1,0 +1,157 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://nfsdiag.leandrosf.com/nfsdiag.schema.json",
+  "title": "nfsdiag JSON report",
+  "description": "Structure of the JSON document emitted by `nfsdiag --json`. The schema_version field tracks compatibility (see the COMPATIBILITY section in nfsdiag(8)).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "tool",
+    "version",
+    "host",
+    "timestamp",
+    "timestamp_iso8601",
+    "duration_sec",
+    "summary",
+    "options",
+    "system_info",
+    "events",
+    "recommendations"
+  ],
+  "properties": {
+    "schema_version": { "const": "2.0" },
+    "tool": { "const": "nfsdiag" },
+    "version": { "type": "string" },
+    "host": { "type": "string" },
+    "timestamp": { "type": "integer" },
+    "timestamp_iso8601": { "type": "string" },
+    "duration_sec": { "type": "integer" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ok", "warn", "fail"],
+      "properties": {
+        "ok": { "type": "integer" },
+        "warn": { "type": "integer" },
+        "fail": { "type": "integer" }
+      }
+    },
+    "options": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "timeout_sec",
+        "command_timeout_sec",
+        "fs_timeout_sec",
+        "stale_iterations",
+        "bench_bytes",
+        "bench_iterations",
+        "krb5"
+      ],
+      "properties": {
+        "timeout_sec": { "type": "integer" },
+        "command_timeout_sec": { "type": "integer" },
+        "fs_timeout_sec": { "type": "integer" },
+        "stale_iterations": { "type": "integer" },
+        "bench_bytes": { "type": "integer" },
+        "bench_iterations": { "type": "integer" },
+        "krb5": { "type": "boolean" }
+      }
+    },
+    "system_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kernel", "hostname", "arch"],
+      "properties": {
+        "kernel": { "type": "string" },
+        "hostname": { "type": "string" },
+        "arch": { "type": "string" }
+      }
+    },
+    "exports": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/export" }
+    },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  },
+  "$defs": {
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["check_id", "level", "category", "severity", "message", "remediation"],
+      "properties": {
+        "check_id": { "type": "string" },
+        "level": { "type": "string", "enum": ["ok", "warn", "fail", "info"] },
+        "category": { "type": "string" },
+        "severity": { "type": "string", "enum": ["ok", "warn", "fail", "info"] },
+        "message": { "type": "string" },
+        "remediation": { "type": "string" }
+      }
+    },
+    "export": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "nfs_version",
+        "nfs_minor_version",
+        "tested",
+        "metrics",
+        "tests",
+        "effective_mount_options",
+        "events"
+      ],
+      "properties": {
+        "path": { "type": "string" },
+        "nfs_version": { "type": "integer" },
+        "nfs_minor_version": { "type": "integer" },
+        "tested": { "type": "boolean" },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "write_mib_s",
+            "read_mib_s",
+            "metadata_p50_ms",
+            "metadata_p95_ms",
+            "metadata_p99_ms",
+            "metadata_iterations"
+          ],
+          "properties": {
+            "write_mib_s": { "type": "number" },
+            "read_mib_s": { "type": "number" },
+            "metadata_p50_ms": { "type": "number" },
+            "metadata_p95_ms": { "type": "number" },
+            "metadata_p99_ms": { "type": "number" },
+            "metadata_iterations": { "type": "integer" }
+          }
+        },
+        "tests": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["acl_posix", "acl_nfsv4", "lock_ok", "root_squash_detected", "estale_seen"],
+          "properties": {
+            "acl_posix": { "type": "boolean" },
+            "acl_nfsv4": { "type": "boolean" },
+            "lock_ok": { "type": "boolean" },
+            "root_squash_detected": { "type": "boolean" },
+            "estale_seen": { "type": "boolean" }
+          }
+        },
+        "effective_mount_options": { "type": "string" },
+        "events": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/event" }
+        }
+      }
+    }
+  }
+}

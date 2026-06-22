@@ -328,8 +328,12 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
                 }
                 goto check_services;
             } else {
-                report_fail("cannot fetch RPC service map via portmapper; "
-                            "rpcbind may be filtered or UDP-only behavior may be blocked");
+                /* Not a final failure: the rpcbind v3/v4 DUMP below is the
+                 * modern path and frequently answers when the legacy
+                 * portmapper call does not. Report fail only if every path
+                 * fails (see the direct-probing branch). */
+                report_info("legacy portmapper did not return a service map; "
+                            "trying rpcbind v3/v4 DUMP");
             }
         } else {
             if (res) freeaddrinfo(res);
@@ -353,26 +357,40 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
     else report_fail("no RPC services detected via direct probing");
 
 check_services:
+    /* Decide the server profile before judging missing services: on an
+     * NFSv4-only server the absence of mountd/NLM/NSM/NFSv3 is expected, not a
+     * problem, so those become info instead of warn. */
+    detected_profile = classify_server_profile(svc);
+    int v4_only = (detected_profile == PROFILE_NFSV4_ONLY);
+
     if (rpc_services_has(svc, NFS_PROGRAM))
         report_ok("NFS service is registered in rpcbind");
+    else if (v4_only)
+        report_info("NFS not in rpcbind map; expected for NFSv4-only, which answers on TCP/2049 without rpcbind");
     else
         report_warn("NFS service is not present in rpcbind map; NFSv4 may still answer on TCP/2049");
 
     if (rpc_services_has(svc, MOUNT_PROGRAM))
         report_ok("mountd service is registered in rpcbind");
+    else if (v4_only)
+        report_info("mountd absent; expected for NFSv4-only (mountd is an NFSv3 protocol)");
     else
         report_warn("mountd service not registered; NFSv3 exports/mount tests may fail, NFSv4 may still work");
 
     if (rpc_services_has(svc, NLM_PROGRAM))
         report_ok("NLM/lockd service is registered");
-    else {
+    else if (v4_only) {
+        report_info("NLM/lockd absent; expected for NFSv4-only (locking is integrated in NFSv4)");
+    } else {
         report_warn("NLM/lockd not registered; NFSv3 advisory locking may be unavailable or firewall-blocked");
         add_recommendation("NLM/lockd is missing: for NFSv3 locking, verify lockd ports and firewall rules; NFSv4 may not need separate lockd.");
     }
 
     if (rpc_services_has(svc, NSM_PROGRAM))
         report_ok("NSM/statd service is registered");
-    else {
+    else if (v4_only) {
+        report_info("NSM/statd absent; expected for NFSv4-only (no separate statd in NFSv4)");
+    } else {
         report_warn("NSM/statd not registered; NFSv3 lock recovery may be unavailable");
         add_recommendation("NSM/statd is missing: NFSv3 lock recovery can fail; start rpc.statd or open its firewall path.");
     }
@@ -550,6 +568,19 @@ void enumerate_exports(const char *host, struct export_list *out) {
 }
 
 /* ---- server implementation fingerprint (heuristic) ---- */
+
+enum server_profile detected_profile = PROFILE_UNKNOWN;
+
+enum server_profile classify_server_profile(const struct rpc_services *svc) {
+    if (!svc || svc->len == 0) return PROFILE_UNKNOWN;
+    int has_nfs3 = rpc_services_has_version(svc, NFS_PROGRAM, 3);
+    int has_nfs4 = rpc_services_has_version(svc, NFS_PROGRAM, 4);
+    int has_mountd = rpc_services_has(svc, MOUNT_PROGRAM);
+    if (has_nfs4 && !has_nfs3 && !has_mountd) return PROFILE_NFSV4_ONLY;
+    if (has_nfs3 && has_nfs4) return PROFILE_MIXED;
+    if (has_nfs3 && !has_nfs4) return PROFILE_NFSV3_ONLY;
+    return PROFILE_UNKNOWN;
+}
 
 void fingerprint_server(const struct rpc_services *svc) {
     if (svc->len == 0) {

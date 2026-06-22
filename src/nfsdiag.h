@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.10.2"
+#define NFSDIAG_VERSION "0.11.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -10,6 +10,7 @@
 #include <ftw.h>
 #include <getopt.h>
 #include <grp.h>
+#include <locale.h>
 #include <netdb.h>
 #include <poll.h>
 #include <pwd.h>
@@ -309,6 +310,18 @@ void    enumerate_exports(const char *host, struct export_list *out);
 void    free_exports(struct export_list *list);
 void    fingerprint_server(const struct rpc_services *svc);
 
+/* Server profile drives whether a missing legacy service (mountd, NLM, NSM,
+ * NFSv3) is a warning or just expected context. Computed from the rpcbind map
+ * in check_rpcbind() and reused by fingerprint_server(). */
+enum server_profile {
+    PROFILE_UNKNOWN = 0,   /* no map or ambiguous: keep conservative warnings */
+    PROFILE_NFSV4_ONLY,    /* NFSv4 present, no NFSv3/mountd: v3 services optional */
+    PROFILE_NFSV3_ONLY,    /* NFSv3 present, no NFSv4 */
+    PROFILE_MIXED          /* both NFSv3 and NFSv4 advertised */
+};
+extern enum server_profile detected_profile;
+enum server_profile classify_server_profile(const struct rpc_services *svc);
+
 /* ---- mount.c ---- */
 
 int  run_command_capture(char *const argv[], char *output, size_t output_sz);
@@ -349,16 +362,25 @@ int  check_dependencies(void);
 void check_client_daemons(void);
 void check_kerberos(void);
 int  capture_rpc_stats(struct rpc_stats *out);
+/* Stream variants take an open FILE* so fuzzers can drive the production
+ * parsers over fmemopen() buffers; they neither open nor close the stream. */
+int  capture_rpc_stats_stream(FILE *f, struct rpc_stats *out);
 void report_rpc_stats_diff(const struct rpc_stats *before,
                            const struct rpc_stats *after);
 void parse_mountstats(const char *mountpoint);
+void parse_mountstats_stream(FILE *f, const char *mountpoint);
 void verify_mount_options(const char *mountpoint, struct export_report *report);
+void verify_mount_options_stream(FILE *f, const char *mountpoint,
+                                 struct export_report *report);
 void collect_system_info(struct system_info *si);
 void check_nfsfs_servers(const char *mountpoint);
 
 /* ---- validation.c ---- */
 
 int parse_ulong_arg(const char *s, unsigned long *out);
+int parse_uid_arg(const char *s, uid_t *out);
+int parse_gid_arg(const char *s, gid_t *out);
+void redact_argv(char *dst, size_t dst_sz, int argc, char **argv);
 int validate_host_arg(const char *host, char *reason, size_t reason_sz);
 int validate_export_path(const char *path, char *reason, size_t reason_sz);
 int validate_mount_options(const char *opts, int allow_risky,

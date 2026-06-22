@@ -136,7 +136,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.10.2 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.11.0 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -381,13 +381,13 @@
               <td class="flag">--bench-bytes</td>
               <td class="arg">BYTES</td>
               <td class="def">4194304</td>
-              <td>Size of the read/write benchmark payload in bytes (4 MiB by default). Max: 1 GiB.</td>
+              <td>Size of the read/write benchmark payload in bytes (4 MiB by default). Range 1 byte to 1 GiB; <code class="inline">0</code> is rejected — use <code class="inline">--bench-iterations 0</code> to skip the benchmark.</td>
             </tr>
             <tr>
               <td class="flag">--bench-iterations</td>
               <td class="arg">N</td>
               <td class="def">10</td>
-              <td>Number of create/rename/unlink cycles for the metadata latency test.</td>
+              <td>Number of create/rename/unlink cycles for the metadata latency test. <code class="inline">0</code> disables the throughput/latency benchmark.</td>
             </tr>
             <tr>
               <td class="flag">--bench-type</td>
@@ -399,7 +399,7 @@
               <td class="flag">--stale-iterations</td>
               <td class="arg">N</td>
               <td class="def">100</td>
-              <td>Number of iterations in the <code class="inline">ESTALE</code> probe loop. Higher values increase the chance of catching transient stale handles.</td>
+              <td>Number of iterations in the <code class="inline">ESTALE</code> probe loop. Higher values increase the chance of catching transient stale handles; <code class="inline">0</code> disables the probe.</td>
             </tr>
           </tbody>
         </table>
@@ -457,7 +457,7 @@
               <td class="flag">-q, --quiet</td>
               <td class="arg">—</td>
               <td class="def">—</td>
-              <td>Suppress stdout. Combine with <code class="inline">--json=FILE</code> or <code class="inline">--html=FILE</code> to get a report with no terminal output.</td>
+              <td>Suppress all human stdout (banner, per-check lines, interpretation, and the <code class="inline">summary:</code> line) in every output format. Requested reports (<code class="inline">--json</code>/<code class="inline">--html</code>, <code class="inline">--output-format</code>, <code class="inline">--output-dir</code>) are still written, including to stdout when the destination is <code class="inline">-</code>.</td>
             </tr>
             <tr>
               <td class="flag">-V, --version</td>
@@ -481,10 +481,15 @@
         </table>
 
         <div class="note">
-          <strong>Stdout suppression rule:</strong> stdout is suppressed only when
-          <code class="inline">--json=-</code> or <code class="inline">--html=-</code>
-          (report written to stdout). Writing to a named file keeps stdout active.
-          Use <code class="inline">--quiet</code> to suppress stdout when writing to a file.
+          <strong>Stdout rule:</strong> human stdout (banner, per-check lines,
+          <code class="inline">summary:</code>) prints only for the
+          <code class="inline">text</code> and <code class="inline">table</code>
+          formats. Machine formats (<code class="inline">ndjson</code>,
+          <code class="inline">junit</code>, <code class="inline">prometheus</code>)
+          and <code class="inline">--json=-</code>/<code class="inline">--html=-</code>
+          emit only the structured document. <code class="inline">--quiet</code>
+          removes human stdout in every case while still writing any requested
+          report to its destination.
         </div>
       </section>
 
@@ -833,7 +838,7 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.10.2: 192.168.0.21
+<pre><code class="block">nfsdiag 0.11.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -869,12 +874,14 @@ summary: ok=12 warn=1 fail=0</code></pre>
         <p class="lede">
           Hierarchical structure: top-level metadata, per-export events (linked
           by <code class="inline">export_idx</code>), per-export NFS version,
-          and a recommendations array. The schema includes
-          <code class="inline">schema_version</code>,
+          and a recommendations array. Each report carries
+          <code class="inline">schema_version</code> (<code class="inline">2.0</code>),
           <code class="inline">timestamp_iso8601</code>,
-          <code class="inline">duration_sec</code>, stable
+          <code class="inline">duration_sec</code>, per-run deterministic
           <code class="inline">check_id</code> values, event categories, severity,
-          and remediation text.
+          and remediation text. The output is described by a published JSON
+          Schema (<code class="inline">docs/nfsdiag.schema.json</code>) and follows
+          a documented 1.x compatibility policy.
         </p>
 <pre><code class="block"><span class="code__d"># JSON to file — diagnostic text still on stdout</span>
 nfsdiag --json=report.json 192.168.1.10
@@ -1049,25 +1056,31 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
 
         <p class="subsec">GitHub release</p>
         <p class="lede">
-          <code class="inline">make release</code> builds all packages, creates an
-          annotated git tag, pushes it, and uploads <code class="inline">.deb</code>,
-          <code class="inline">.rpm</code>, and <code class="inline">.apk</code> to a
-          GitHub release using the <code class="inline">gh</code> CLI. The working
-          directory must be clean before running.
+          <code class="inline">make release</code> validates that the working tree
+          is clean and that <code class="inline">VERSION</code> matches
+          <code class="inline">src/nfsdiag.h</code>, then creates and pushes the
+          annotated <code class="inline">v$VERSION</code> tag. It does not build or
+          upload artifacts itself — the tag push triggers the release workflow,
+          which is the single builder/publisher. Run
+          <code class="inline">make release-check</code> first to run the build,
+          unit tests, version/schema checks, cppcheck and shellcheck.
         </p>
-<pre><code class="block">make release</code></pre>
+<pre><code class="block">make release-check   <span class="code__d"># gate: build + tests + lint + version/schema</span>
+make release         <span class="code__d"># tag v$VERSION and push (workflow publishes)</span></code></pre>
 
         <p class="lede">
-          Automated releases also run via GitHub Actions on every
-          <code class="inline">v*</code> tag push. The workflow builds DEB on
-          Ubuntu, RPM in a Fedora container, and APK via Docker, then attaches
-          all three packages to the release.
+          The GitHub Actions release workflow runs on every
+          <code class="inline">v*</code> tag push. It builds DEB on Ubuntu, RPM in
+          a Fedora container, and APK via Docker, then attaches all three packages
+          to the release. After the release exists, run
+          <code class="inline">make update-release-checksums</code> to refresh the
+          Homebrew and AUR source checksums and commit the result.
         </p>
 
         <p class="subsec">Manual compile</p>
 <pre><code class="block">gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
     src/main.c src/mount.c src/network.c src/report.c \
-    src/rpc.c src/stats.c src/tests.c \
+    src/rpc.c src/stats.c src/tests.c src/validation.c \
     -ltirpc -o nfsdiag</code></pre>
       </section>
 
@@ -1289,7 +1302,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.10.2"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.11.0"</td></tr>
             <tr><td class="flag">MAX_XDR_EXPORT_NODES</td><td colspan="3">2048</td></tr>
             <tr><td class="flag">MAX_XDR_GROUP_NODES</td><td colspan="3">8192</td></tr>
             <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
@@ -1394,6 +1407,23 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
           </svg>
         </h2>
 
+        <p class="subsec">v0.11.0</p>
+        <p class="lede">
+          Road-to-1.0 hardening: safer diagnostics, a published JSON schema and
+          stability policy, real-parser fuzzing, and a much wider CI and
+          packaging gate.
+        </p>
+        <ul class="fixtures">
+          <li>Per-export filesystem tests run in a killable child with a hard deadline (sequential and parallel), so a wedged hard mount can't pin the tool</li>
+          <li>Severity is server-profile aware: on an NFSv4-only server, missing mountd/NLM/NSM/NFSv3 is <code class="inline">info</code>, not <code class="inline">warn</code>; the version cascade emits a single <code class="inline">fail</code> only when no version mounts</li>
+          <li><code class="inline">--quiet</code> now silences human stdout in every format; <code class="inline">--bench-bytes 0</code> is rejected and <code class="inline">--bench-iterations 0</code>/<code class="inline">--stale-iterations 0</code> mean "disabled"</li>
+          <li><code class="inline">--uid</code>/<code class="inline">--gid</code>/<code class="inline">--groups</code> reject out-of-range values; special-filename probes use random names + <code class="inline">O_CREAT|O_EXCL</code> so pre-existing files are never touched</li>
+          <li>Published JSON schema (<code class="inline">docs/nfsdiag.schema.json</code>) with a documented 1.x compatibility policy; validated in CI</li>
+          <li>Fuzzers now drive the real <code class="inline">mountstats</code>/<code class="inline">mountinfo</code>/<code class="inline">rpcstats</code> parsers; new <code class="inline">FUZZ_SANITIZERS</code>/<code class="inline">FUZZ_RUNS</code> knobs</li>
+          <li>CI gained DEB/RPM/APK install smoke, AUR <code class="inline">makepkg</code>/<code class="inline">namcap</code>, Nix <code class="inline">flake check</code>, <code class="inline">promtool</code>, website and signal checks, plus a post-publish release smoke test</li>
+          <li>New docs: threat model, compatibility policy, and integration recipes; Homebrew formula is Linux-only</li>
+        </ul>
+
         <p class="subsec">v0.10.0</p>
         <p class="lede">
           Pre-1.0 hardening release: governance files, packaging completeness,
@@ -1408,7 +1438,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
           <li>Numeric arguments reject negative values (previously wrapped via <code class="inline">strtoul</code>); empty mount-option tokens are rejected; parser errors show the valid range</li>
           <li>deb/rpm/apk now ship man page, completions, and license; OCI image carries labels, license, and man page</li>
           <li>Release artifacts get signed Sigstore provenance attestations; GitHub Actions pinned by commit SHA</li>
-          <li>CI: cppcheck reinstated, ASan/UBSan + valgrind, fuzz smoke, shellcheck, output-format validation, privileged fixtures, coverage, and version/docs consistency checks</li>
+          <li>CI: cppcheck reinstated, ASan/UBSan + valgrind, fuzz smoke, shellcheck, output-format validation against the published JSON schema, a rootless docker fixture subset, coverage, and version/docs consistency checks</li>
           <li>Nix flake moved to the repo root and builds in pure evaluation mode; AUR PKGBUILD validated and pinned with a real sha256</li>
         </ul>
 
@@ -1603,7 +1633,7 @@ make bump-version-major    <span class="code__d"># 0.5.0 → 1.0.0</span></code>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.10.2</strong></span>
+      <span>nfsdiag <strong>v0.11.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

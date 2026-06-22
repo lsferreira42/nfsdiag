@@ -2,6 +2,13 @@ nfsdiag
 *.o
 todo.*
 build/
+tests/fuzz/corpus/
+tests/fuzz/fuzz_xdr_exports
+tests/fuzz/fuzz_mountstats
+tests/fuzz/fuzz_mountinfo
+tests/fuzz/fuzz_rpcstats
+crash-*
+leak-*
 *E.md
 *l.md
 *1.md

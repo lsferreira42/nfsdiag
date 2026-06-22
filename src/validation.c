@@ -20,6 +20,79 @@ int parse_ulong_arg(const char *s, unsigned long *out) {
     return 0;
 }
 
+/* uid_t/gid_t are usually 32-bit unsigned, but parse_ulong_arg() accepts the
+ * full unsigned long range. Reject values that would truncate on cast, plus
+ * the reserved (uid_t)-1 / (gid_t)-1 sentinels used by the set*id() calls. */
+int parse_uid_arg(const char *s, uid_t *out) {
+    unsigned long value;
+    if (parse_ulong_arg(s, &value) != 0) return -1;
+    uid_t uid = (uid_t)value;
+    if ((unsigned long)uid != value || uid == (uid_t)-1) return -1;
+    *out = uid;
+    return 0;
+}
+
+int parse_gid_arg(const char *s, gid_t *out) {
+    unsigned long value;
+    if (parse_ulong_arg(s, &value) != 0) return -1;
+    gid_t gid = (gid_t)value;
+    if ((unsigned long)gid != value || gid == (gid_t)-1) return -1;
+    *out = gid;
+    return 0;
+}
+
+/* Options whose following value can carry sensitive material — mount options
+ * (paths, future sec= credentials) and local config/hook paths. Their values
+ * are replaced with <redacted> in the evidence record. */
+static int redacts_next_value(const char *arg) {
+    return strcmp(arg, "-o") == 0 ||
+           strcmp(arg, "--mount-options") == 0 ||
+           strcmp(arg, "--config") == 0 ||
+           strcmp(arg, "--on-fail-exec") == 0;
+}
+
+/* Returns the "--flag=" prefix length if arg is a redacted inline assignment
+ * (e.g. "--config=/path"), else 0. */
+static size_t redacted_inline_prefix(const char *arg) {
+    static const char *flags[] = {"--mount-options=", "--config=", "--on-fail-exec=", NULL};
+    for (size_t i = 0; flags[i]; i++) {
+        size_t len = strlen(flags[i]);
+        if (strncmp(arg, flags[i], len) == 0) return len;
+    }
+    return 0;
+}
+
+void redact_argv(char *dst, size_t dst_sz, int argc, char **argv) {
+    if (!dst || dst_sz == 0) return;
+    dst[0] = '\0';
+    size_t used = 0;
+    int redact_next = 0;
+    for (int i = 0; i < argc; i++) {
+        const char *arg = argv[i] ? argv[i] : "";
+        char clean[512];
+        size_t prefix = redacted_inline_prefix(arg);
+        if (redact_next) {
+            snprintf(clean, sizeof(clean), "<redacted>");
+            redact_next = 0;
+        } else if (redacts_next_value(arg)) {
+            snprintf(clean, sizeof(clean), "%s", arg);
+            redact_next = 1;
+        } else if (prefix != 0) {
+            snprintf(clean, sizeof(clean), "%.*s<redacted>", (int)prefix, arg);
+        } else if (strncmp(arg, "-o", 2) == 0 && arg[2] != '\0') {
+            snprintf(clean, sizeof(clean), "-o<redacted>");
+        } else {
+            size_t j = 0;
+            for (const unsigned char *p = (const unsigned char *)arg; *p && j + 1 < sizeof(clean); p++)
+                clean[j++] = (*p < 0x20 || *p == 0x7f) ? '?' : (char)*p;
+            clean[j] = '\0';
+        }
+        int n = snprintf(dst + used, dst_sz - used, "%s%s", used ? " " : "", clean);
+        if (n < 0 || (size_t)n >= dst_sz - used) break;
+        used += (size_t)n;
+    }
+}
+
 int validate_host_arg(const char *host, char *reason, size_t reason_sz) {
     if (!host || !host[0]) {
         set_reason(reason, reason_sz, "host is empty");

@@ -55,6 +55,7 @@ DOCKER_TAG_PREFIX ?= nfsdiag-fixture
 #                           sets, so some suppressions are unmatched on any
 #                           given version; without this the CI and local runs
 #                           need version-specific suppression lists
+SHELLCHECK ?= shellcheck
 CPPCHECK ?= cppcheck
 CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--platform=unix64 --force --inline-suppr --error-exitcode=1 \
@@ -67,7 +68,7 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=unmatchedSuppression \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
-.PHONY: all clean distclean rebuild check test-unit cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages release update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -79,18 +80,49 @@ $(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/nfsdiag.h
 
 rebuild: clean all
 
-check: $(TARGET) test-unit
+check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs
 	./$(TARGET) --help >/dev/null
 	./$(TARGET) --self-test >/dev/null
 	@echo "self-check passed"
+
+# Fail if a --help option is undocumented in README/man/website/completions.
+check-cli-docs: $(TARGET)
+	sh tests/check-cli-docs.sh
+
+# Assert the four structured renderers agree on counters and are well-formed.
+check-output-golden: $(TARGET)
+	sh tests/check-output-golden.sh
+
+# Static validation of the website (HTML well-formedness + internal links).
+check-website:
+	sh tests/check-website.sh
+
+# Signal handling and post-run cleanup on the unprivileged paths.
+check-signals: $(TARGET)
+	sh tests/check-signals.sh
 
 test-unit:
 	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c -o build-unit-tests $(LDLIBS)
 	./build-unit-tests
 	rm -f build-unit-tests
 
+# Fail if any versioned artifact drifts from VERSION.
+check-versions:
+	sh tests/check-versions.sh
+
+# Validate that the live JSON report matches the published schema.
+check-json-schema: $(TARGET)
+	sh tests/check-json-schema.sh
+
+shellcheck:
+	$(SHELLCHECK) tests/*.sh dockerfiles/common/*.sh
+
 cppcheck:
 	$(CPPCHECK) $(CPPCHECK_FLAGS) $(SRCDIR)
+
+# Aggregate gate to run before tagging a release. Stops on the first failure.
+release-check: check cppcheck shellcheck check-website check-signals
+	@echo "release-check passed for $(VERSION)"
 
 sbom:
 	mkdir -p build
@@ -124,6 +156,7 @@ install: $(TARGET)
 	install -m 0644 completions/nfsdiag.fish "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
 	install -d "$(DESTDIR)$(DOCDIR)"
 	install -m 0644 LICENSE "$(DESTDIR)$(DOCDIR)/LICENSE"
+	install -m 0644 docs/nfsdiag.schema.json "$(DESTDIR)$(DOCDIR)/nfsdiag.schema.json"
 
 uninstall:
 	rm -f "$(DESTDIR)$(BINDIR)/$(TARGET)"
@@ -132,6 +165,7 @@ uninstall:
 	rm -f "$(DESTDIR)$(ZSHCOMPDIR)/_nfsdiag"
 	rm -f "$(DESTDIR)$(FISHCOMPDIR)/nfsdiag.fish"
 	rm -f "$(DESTDIR)$(DOCDIR)/LICENSE"
+	rm -f "$(DESTDIR)$(DOCDIR)/nfsdiag.schema.json"
 	-rmdir "$(DESTDIR)$(DOCDIR)" 2>/dev/null || true
 
 # ---- Code coverage (gcov/lcov) ----
@@ -154,9 +188,16 @@ help:
 	@echo "Targets:"
 	@echo "  all                  Build $(TARGET)"
 	@echo "  rebuild              Clean and build"
-	@echo "  check                Run a minimal CLI self-check"
+	@echo "  check                Run unit tests, version/schema checks and a CLI self-check"
 	@echo "  test-unit            Run pure helper unit tests"
+	@echo "  check-versions       Fail if any versioned artifact drifts from VERSION"
+	@echo "  check-json-schema    Validate the live JSON report against docs/nfsdiag.schema.json"
+	@echo "  check-output-golden  Assert JSON/NDJSON/JUnit/Prometheus agree on counters"
+	@echo "  check-website        Validate website HTML and internal links"
+	@echo "  check-signals        Check SIGINT/SIGTERM handling and post-run cleanup"
+	@echo "  shellcheck           Lint the shell scripts (tests and docker entrypoints)"
 	@echo "  cppcheck             Run cppcheck static analysis (fails on findings)"
+	@echo "  release-check        Run check + cppcheck + shellcheck before tagging"
 	@echo "  sbom                 Generate a minimal SPDX-style SBOM in build/"
 	@echo "  install              Install binary, man page, and shell completions to DESTDIR/PREFIX, default $(PREFIX)"
 	@echo "  uninstall            Remove installed files"
@@ -174,7 +215,8 @@ help:
 	@echo "  rpm                  Build RPM package (.rpm) in build/"
 	@echo "  apk                  Build Alpine package (.apk) via Docker in build/"
 	@echo "  binary-dist          Stage a standalone versioned binary in build/"
-	@echo "  packages             Build all packages plus the standalone binary and SBOM"
+	@echo "  packages             Build all packages plus the standalone binary and SBOM (fails on any package error)"
+	@echo "  packages-best-effort Build packages but keep going past failures (local convenience)"
 	@echo "  release              Validate tree, tag v\$$VERSION and push; the release workflow publishes artifacts"
 	@echo "  update-release-checksums  Refresh tarball sha256 in the Homebrew formula and AUR PKGBUILD"
 	@echo ""
@@ -266,12 +308,22 @@ binary-dist: $(TARGET)
 	install -m 0755 $(TARGET) build/$(BIN_DIST)
 	@echo "Binary: build/$(BIN_DIST)"
 
+# Release path: any package failure must abort. Do not add '-' prefixes here.
 packages: $(TARGET) sbom binary-dist
+	mkdir -p build
+	$(MAKE) deb
+	$(MAKE) rpm
+	$(MAKE) apk
+	@echo "All packages built under build/."
+
+# Local convenience: keep going past a failing builder (e.g. no docker for APK).
+# Not for release — use 'packages' there.
+packages-best-effort: $(TARGET) sbom binary-dist
 	mkdir -p build
 	-$(MAKE) deb
 	-$(MAKE) rpm
 	-$(MAKE) apk
-	@echo "Package build phase completed (see above for any failures)."
+	@echo "Package build phase completed (failures above were ignored)."
 
 # The tag push triggers .github/workflows/release.yml, which is the single
 # canonical builder/publisher of release artifacts. This target only

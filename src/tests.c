@@ -18,9 +18,7 @@ static int fill_file(int fd, size_t bytes) {
     return 0;
 }
 
-static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx) {
-    /* Add random bytes to make test paths unpredictable even in shared
-     * exports, preventing timing-based symlink pre-creation by other users. */
+static uint32_t test_random(void) {
     uint32_t rnd = 0;
     if (getrandom(&rnd, sizeof(rnd), 0) < 0) {
         int rfd = open("/dev/urandom", O_RDONLY | O_CLOEXEC);
@@ -32,7 +30,13 @@ static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx
         if (got != (ssize_t)sizeof(rnd))
             rnd = (uint32_t)(time(NULL) ^ getpid());
     }
-    snprintf(dst, sz, "%s/.nfsdiag-%ld-%08x-%s", mp, (long)getpid(), rnd, sfx);
+    return rnd;
+}
+
+static void make_test_path(char *dst, size_t sz, const char *mp, const char *sfx) {
+    /* Add random bytes to make test paths unpredictable even in shared
+     * exports, preventing timing-based symlink pre-creation by other users. */
+    snprintf(dst, sz, "%s/.nfsdiag-%ld-%08x-%s", mp, (long)getpid(), test_random(), sfx);
 }
 
 static void cleanup_test_path(const char *path) {
@@ -605,6 +609,10 @@ static void test_identity_simulation(const char *mp) {
 }
 
 static void test_stale_loop(const char *mp, struct export_report *rpt) {
+    if (opt.stale_iterations <= 0) {
+        report_info("ESTALE probe skipped (--stale-iterations 0)");
+        return;
+    }
     if (opt.verbose) printf("\n    [stale handle loop]\n");
     int estale_seen = 0;
     for (int i = 0; i < opt.stale_iterations; i++) {
@@ -628,59 +636,56 @@ static void test_stale_loop(const char *mp, struct export_report *rpt) {
 
 /* ---- Long filenames and special character test ---- */
 
+/* Create-and-remove a single probe file. O_EXCL guarantees we never open or
+ * unlink a file we did not create, so a pre-existing user file at the same
+ * path (extremely unlikely given the random component) is left untouched. */
+static void probe_special_name(const char *path, const char *what) {
+    int fd = open(path, O_CREAT | O_EXCL | O_WRONLY | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        report_ok("%s created successfully", what);
+        close(fd);
+        cleanup_test_path(path);
+    } else if (errno == ENAMETOOLONG) {
+        report_info("%s rejected (ENAMETOOLONG): server/export limits name length", what);
+    } else if (errno == EEXIST) {
+        report_info("%s skipped: generated path already exists, not overwriting", what);
+    } else {
+        report_info("%s: %s", what, strerror(errno));
+    }
+}
+
 static void test_long_filenames(const char *mp) {
     if (!opt.write_test) return;
     struct sigaction old_sa;
     arm_fs_timeout(&old_sa);
 
-    /* 255-byte filename (ENAMETOOLONG on some servers) */
+    char rnd[9];
+    snprintf(rnd, sizeof(rnd), "%08x", test_random());
+
+    /* 255-byte filename (ENAMETOOLONG on some servers). Keep the length at the
+     * 255-byte limit being tested but embed the random prefix so the path is
+     * still unpredictable. */
     char longname[4096];
     char part[256];
     memset(part, 'a', 255);
+    memcpy(part, rnd, 8);
     part[255] = '\0';
     snprintf(longname, sizeof(longname), "%s/%s", mp, part);
-    int fd = open(longname, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd >= 0) {
-        report_ok("255-byte filename creation succeeded");
-        close(fd); cleanup_test_path(longname);
-    } else if (errno == ENAMETOOLONG) {
-        report_info("255-byte filename rejected (ENAMETOOLONG): server/export limits name length");
-    } else {
-        report_info("255-byte filename: %s", strerror(errno));
-    }
+    probe_special_name(longname, "255-byte filename");
 
-    /* Filename with spaces */
     char spacename[4096];
-    snprintf(spacename, sizeof(spacename), "%s/nfsdiag test file with spaces", mp);
-    fd = open(spacename, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd >= 0) {
-        report_ok("filename with spaces created successfully");
-        close(fd); cleanup_test_path(spacename);
-    } else {
-        report_info("filename with spaces: %s", strerror(errno));
-    }
+    snprintf(spacename, sizeof(spacename), "%s/nfsdiag test file with spaces %s", mp, rnd);
+    probe_special_name(spacename, "filename with spaces");
 
     /* UTF-8 multibyte filename (ñ, 中文) */
     char utf8name[4096];
-    snprintf(utf8name, sizeof(utf8name), "%s/nfsdiag-\xc3\xb1-\xe4\xb8\xad\xe6\x96\x87", mp);
-    fd = open(utf8name, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd >= 0) {
-        report_ok("UTF-8 multibyte filename created successfully");
-        close(fd); cleanup_test_path(utf8name);
-    } else {
-        report_info("UTF-8 multibyte filename: %s", strerror(errno));
-    }
+    snprintf(utf8name, sizeof(utf8name), "%s/nfsdiag-\xc3\xb1-\xe4\xb8\xad\xe6\x96\x87-%s", mp, rnd);
+    probe_special_name(utf8name, "UTF-8 multibyte filename");
 
     /* Filename with colon and at-sign (Windows interop relevant) */
     char specialname[4096];
-    snprintf(specialname, sizeof(specialname), "%s/nfsdiag@host:port", mp);
-    fd = open(specialname, O_CREAT | O_WRONLY | O_NOFOLLOW, 0600);
-    if (fd >= 0) {
-        report_ok("filename with colon and at-sign created successfully");
-        close(fd); cleanup_test_path(specialname);
-    } else {
-        report_info("filename with colon/at-sign: %s", strerror(errno));
-    }
+    snprintf(specialname, sizeof(specialname), "%s/nfsdiag@host:port-%s", mp, rnd);
+    probe_special_name(specialname, "filename with colon and at-sign");
 
     disarm_fs_timeout(&old_sa);
 }

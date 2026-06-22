@@ -6,6 +6,66 @@ canonical changelog; `website/docs.html#changelog` mirrors it.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+## [0.11.0] - 2026-06-22
+
+### Fixed
+- Per-export filesystem diagnostics now run in a killable child process with a
+  hard deadline in both sequential and parallel mode, so a wedged hard mount can
+  no longer pin the main process.
+- Severity is now server-profile aware: on an NFSv4-only server the absence of
+  mountd, NLM, NSM or NFSv3 is reported as `info`, not `warn`.
+- `LC_ALL=C` is pinned for the main process so number parsing/formatting in
+  reports is independent of the caller's locale.
+- `--quiet` now suppresses the banner and `summary:` line in every output
+  format, matching its documented contract (previously they still printed when
+  writing a report to a file).
+- `test_long_filenames` creates its 255-byte/space/UTF-8/special probe files
+  with a per-run random component and `O_CREAT|O_EXCL`, so a pre-existing user
+  file or symlink at the same path is never opened, truncated, or removed.
+- `--uid`/`--gid`/`--groups` reject values outside the platform `uid_t`/`gid_t`
+  range (including the reserved `-1` sentinel) instead of silently truncating.
+- A failed legacy portmapper query is now `info`, not `fail`, when the rpcbind
+  v3/v4 DUMP fallback can still succeed.
+- The NFS version cascade reports a single `fail` only when no version mounts;
+  individual version attempts are `info`, so NFSv4-only servers no longer get a
+  spurious v3 failure.
+
+- Redaction of the evidence argv now also covers `--config` and
+  `--on-fail-exec` values, not just mount options.
+
+### Changed
+- `--bench-bytes 0` is rejected; `--bench-iterations 0` and
+  `--stale-iterations 0` are defined as "disabled" and reported as skipped.
+- `make packages` now stops on the first package failure; `make
+  packages-best-effort` keeps the old lenient behaviour for local use.
+- The libFuzzer harnesses (`mountstats`, `mountinfo`, `rpcstats`) now drive the
+  real production parsers via `fmemopen` instead of duplicated copies; the fuzz
+  build gained `FUZZ_SANITIZERS` and `FUZZ_RUNS` knobs.
+- The Homebrew formula is declared Linux-only (`depends_on :linux`).
+
+### Added
+- Published JSON report schema at `docs/nfsdiag.schema.json` with a documented
+  1.x compatibility policy (`docs/COMPATIBILITY.md`, man page
+  `JSON COMPATIBILITY`) and validated in CI (`make check-json-schema`).
+- `make release-check` aggregate gate; `make check` now also runs version,
+  schema, golden-output, CLI/docs, and (via release-check) website and signal
+  consistency oracles.
+- New consistency oracles: `tests/check-output-golden.sh` (the four structured
+  renderers agree on counters), `tests/check-website.sh` (HTML + internal
+  links), `tests/check-signals.sh` (SIGINT/SIGTERM and post-run cleanup).
+- The Docker fixture runner now also asserts the expected exit code, a clean
+  JSON stream (no banner leak), and no temp files left in the export.
+- CI jobs: DEB/RPM/APK build + install smoke, AUR `makepkg`/`namcap`, Nix
+  `flake check`, `promtool` metric validation, website validation, and a
+  post-publish release smoke test that verifies checksums and the signed
+  build-provenance attestation.
+- Documentation: `SEVERITY` and mount-option-policy notes in the man page,
+  `docs/THREAT-MODEL.md`, `docs/COMPATIBILITY.md`, `docs/INTEGRATIONS.md`,
+  a supported-platform matrix and benchmark-scope section in the README,
+  `CODEOWNERS`, and an SBOM-scope statement on releases.
+
 ## [0.10.2] - 2026-06-16
 
 ### Fixed
@@ -36,8 +96,8 @@ CI gate.
   the license file alongside the binary; the OCI image carries OCI labels,
   the license, and the man page.
 - CI: cppcheck reinstated, ASan/UBSan + valgrind job, fuzz smoke run,
-  shellcheck, machine-output validation (jq/xmllint), privileged fixture job,
-  coverage artifact, version-consistency and CLI/docs-parity checks
+  shellcheck, machine-output validation (jq/xmllint), a rootless docker fixture
+  subset, coverage artifact, version-consistency and CLI/docs-parity checks
   (`tests/check-versions.sh`, `tests/check-cli-docs.sh`).
 - Release artifacts get signed Sigstore provenance attestations
   (`gh attestation verify`); GitHub Actions pinned by commit SHA with

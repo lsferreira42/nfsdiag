@@ -29,7 +29,7 @@ expected_pattern() {
         rpcbind-unreachable) printf '%s\n' 'rpcbind TCP port 111 unreachable' ;;
         nfs-port-unreachable) printf '%s\n' 'NFS TCP port 2049 unreachable' ;;
         empty-exports) printf '%s\n' 'server returned an empty export list' ;;
-        mount-denied) printf '%s\n' 'mount attempt failed' ;;
+        mount-denied) printf '%s\n' 'could not mount' ;;
         acl-unsupported) printf '%s\n' 'ACL xattrs' ;;
         stale-handle) printf '%s\n' 'ESTALE' ;;
         slow-performance) printf '%s\n' 'timed out' ;;
@@ -55,6 +55,59 @@ run_nfsdiag() {
         *)
             timeout "$TEST_TIMEOUT" "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 "$ip" ;;
     esac
+}
+
+# Same invocation as run_nfsdiag but forcing JSON to stdout, to assert the
+# structured stream is not corrupted by the human banner/summary.
+run_nfsdiag_json() {
+    fixture=$1
+    ip=$2
+    case "$fixture" in
+        read-only-export|root-squash|permission-denied|empty-exports|mount-denied|acl-unsupported|stale-handle|slow-performance)
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --json=- "$ip" ;;
+        identity-denied)
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 --json=- "$ip" ;;
+        *)
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 --json=- "$ip" ;;
+    esac
+}
+
+# Assertions beyond the text pattern: the run must report a problem (rc=1, not
+# 0/timeout), the JSON stream must be clean (no banner), and a live-mount
+# fixture must not leave nfsdiag temp files in the export.
+verify_extra() {
+    fixture=$1
+    ip=$2
+    name=$3
+    rc=$4
+    ok=0
+
+    if [ "$rc" != "1" ]; then
+        echo "  [extra-FAIL] ${fixture}: expected exit code 1, got ${rc}"
+        ok=1
+    fi
+
+    json=$(run_nfsdiag_json "$fixture" "$ip" 2>/dev/null || true)
+    first=$(printf '%s\n' "$json" | sed -n '1p')
+    case "$first" in
+        '{'*) : ;;
+        *) echo "  [extra-FAIL] ${fixture}: JSON stdout does not start with '{' (banner leak?): ${first}"; ok=1 ;;
+    esac
+    if command -v jq >/dev/null 2>&1; then
+        printf '%s' "$json" | jq empty >/dev/null 2>&1 || {
+            echo "  [extra-FAIL] ${fixture}: --json=- stdout is not valid JSON"
+            ok=1
+        }
+    fi
+
+    if need_root_for_live "$fixture"; then
+        leftover=$("$DOCKER" exec "$name" sh -c 'ls -A /export 2>/dev/null | grep -c "^\.nfsdiag-" || true' 2>/dev/null || echo 0)
+        if [ "${leftover:-0}" != "0" ]; then
+            echo "  [extra-FAIL] ${fixture}: ${leftover} nfsdiag temp file(s) left in /export"
+            ok=1
+        fi
+    fi
+    return "$ok"
 }
 
 build_fixture() {
@@ -130,11 +183,17 @@ for fixture in ${FIXTURES}; do
     set -e
 
     pattern=$(expected_pattern "$fixture")
-    if grep -F "$pattern" "$output" >/dev/null 2>&1; then
+    extra_ok=0
+    verify_extra "$fixture" "$ip" "$name" "$rc" || extra_ok=1
+    if grep -F "$pattern" "$output" >/dev/null 2>&1 && [ "$extra_ok" -eq 0 ]; then
         echo "[PASS] ${fixture}: matched '${pattern}' (nfsdiag rc=${rc})"
         pass=$((pass + 1))
     else
-        echo "[FAIL] ${fixture}: expected '${pattern}'"
+        if ! grep -F "$pattern" "$output" >/dev/null 2>&1; then
+            echo "[FAIL] ${fixture}: expected '${pattern}'"
+        else
+            echo "[FAIL] ${fixture}: extra assertions failed"
+        fi
         echo "----- output -----"
         cat "$output"
         echo "------------------"

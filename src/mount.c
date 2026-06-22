@@ -279,14 +279,23 @@ int mount_export(const char *host, const char *export_path,
             return 0;
         }
 
-        if (ver[0] == '4')
-            report_warn("NFS v%s mount attempt failed for %s: %s",
-                        ver, export_path, output[0] ? output : "no output");
-        else
-            report_fail("NFS v%s mount attempt failed for %s: %s",
-                        ver, export_path, output[0] ? output : "no output");
+        /* A failed attempt is only one step of the version negotiation, not a
+         * final verdict: an NFSv4-only server legitimately fails the v3 probe
+         * and vice-versa. The single fail below fires only if no version
+         * mounts, so the severity reflects inability to mount, not the absence
+         * of an optional version. */
+        report_info("NFS v%s mount attempt failed for %s: %s",
+                    ver, export_path, output[0] ? output : "no output");
     }
 
+    char tried[64] = {0};
+    for (int i = 0; nfs_version_cascade[i]; i++) {
+        size_t off = strlen(tried);
+        snprintf(tried + off, sizeof(tried) - off, "%s%s",
+                 i ? ", " : "", nfs_version_cascade[i]);
+    }
+    report_fail("could not mount %s with any of the attempted protocol versions (tried %s): %s",
+                export_path, tried, output[0] ? output : "no output");
     return -1;
 }
 

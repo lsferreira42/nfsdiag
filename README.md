@@ -416,7 +416,11 @@ Stdout suppression: active only when --json=- or --html=- (report to stdout).
 - `1`: warning or failure found
 - `2`: usage error or local runtime error
 
-Warnings return `1` because in automation they usually need attention.
+Warnings return `1` because in automation they usually need attention. The code
+reflects the highest severity across the whole run and is the same regardless of
+output format. With `--no-mount` only the network/RPC/export checks count; with
+`--parallel` every worker's results are merged first. `nfsdiag diff` returns `1`
+when the second report has more warnings or failures than the first.
 
 ---
 
@@ -446,8 +450,19 @@ Available fixtures: `rpcbind-unreachable`, `nfs-port-unreachable`, `rpc-map-miss
 
 `nfsdiag` is designed to run as root. Key mitigations:
 
+- **Non-destructive by default:** nfsdiag only creates and removes its own
+  uniquely-named test files (random component + `O_CREAT|O_EXCL`); it never
+  reads, modifies, or deletes pre-existing data in an export. `--read-only`,
+  `--dry-run`, and the `safe`/`readonly` profiles skip writing entirely.
+- **Default mount options:** exports are mounted `vers=<n>,nosuid,nodev,noexec`.
+  The hardening flags block setuid binaries, device nodes, and execution from an
+  untrusted server; disable them only with `--allow-risky-mount-options`.
+  `timeo`/`retrans` are left at kernel defaults and the mount stays `hard`
+  (a user-supplied `soft` is warned about) — hangs are bounded by a killable
+  per-export worker and `--command-timeout` instead of risking I/O errors on a
+  `soft` mount. nfsdiag does not force `ro`, because it tests writes by design;
+  use `--read-only` to skip all writes.
 - Mount operations run in a private mount namespace to avoid polluting the global namespace.
-- Exports are mounted with `nosuid,nodev,noexec` by default; disable only with `--allow-risky-mount-options`.
 - Host, export path and mount options are validated before network or mount activity.
 - Risky mount options require `--allow-risky-mount-options`.
 - Identity simulation always resets supplemental groups so results reflect the simulated user, not root.
@@ -488,3 +503,68 @@ Each target updates `VERSION`, `src/nfsdiag.h`, and all packaging files atomical
 - The `--listen` Prometheus exporter has no authentication or TLS; it binds
   `127.0.0.1` by default and should only be exposed behind a trusted network
   or reverse proxy
+
+---
+
+## Support policy
+
+- **Scope:** Linux only. `nfsdiag` parses `/proc/self/mountstats`,
+  `/proc/self/mountinfo`, `/proc/net/rpc/nfs` and `/proc/fs/nfsfs/servers` and
+  drives `mount.nfs`, so it does not run on macOS or BSD.
+- **Architectures:** prebuilt binaries and packages are published for `amd64`
+  and `arm64`. Other architectures can build from source.
+- **Distributions:** built and CI-tested on Ubuntu LTS, Debian, Fedora and
+  Alpine (glibc and musl). Packaged for Debian/Ubuntu (`.deb`), Fedora/RHEL
+  (`.rpm`), Alpine (`.apk`), Arch (AUR) and Nix; the Homebrew formula targets
+  Linuxbrew.
+- **Runtime requirements:** `nfs-utils`/`nfs-common` (for `mount.nfs`),
+  `rpcbind` on the server side for NFSv3 discovery, and `libtirpc`. Full mount
+  diagnostics need root (or `CAP_SYS_ADMIN`); `--no-mount`, `--self-test`,
+  `--help` and `--version` work as an unprivileged user.
+- **JSON stability:** the `--json` output follows the schema in
+  [docs/nfsdiag.schema.json](docs/nfsdiag.schema.json); see
+  [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) for the 1.x stability rules.
+
+### Supported platform matrix
+
+| Platform | Arch | Package | CI |
+|----------|------|---------|----|
+| Ubuntu LTS / Debian | amd64, arm64 | `.deb` | build + install smoke |
+| Fedora / RHEL-like | amd64, arm64 | `.rpm` | build + install smoke |
+| Alpine (musl) | amd64 | `.apk` | build + install smoke |
+| Arch Linux | amd64 | AUR `PKGBUILD` | makepkg + namcap |
+| Any with Nix | amd64 | `flake.nix` | `nix flake check` |
+| Linuxbrew | amd64, arm64 | `packaging/homebrew` | — |
+
+macOS and BSD are not supported (Linux `/proc` and `mount.nfs` are required).
+Minimum toolchain: a C11 compiler, `libtirpc`, and a kernel new enough to expose
+`/proc/self/mountstats`.
+
+---
+
+## Benchmark scope
+
+The `--bench-*` options run a small write+fsync / cache-dropped read and a
+metadata-latency loop. They are a **smoke test from this client**, not a
+capacity benchmark: results depend on cache, sync behaviour, network, server
+load, and mount options. The default sample is 4 MiB (`--bench-bytes`) over a
+few iterations (`--bench-iterations`, `--stale-iterations`); a warning is
+emitted when the sample is too small to be meaningful. Set
+`--bench-iterations 0` to skip throughput/latency entirely, or `--read-only` to
+mount without writing. For real performance baselines, use `fio`
+(`--bench-type=fio`) or a dedicated benchmark and treat nfsdiag's numbers as a
+reachability/sanity signal.
+
+---
+
+## Project files
+
+- [LICENSE](LICENSE) — MIT.
+- [SECURITY.md](SECURITY.md) — how to report a vulnerability; verifying downloads.
+- [CHANGELOG.md](CHANGELOG.md) — release history.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — build, test and release workflow.
+- [docs/nfsdiag.8](docs/nfsdiag.8) — man page.
+- [docs/nfsdiag.schema.json](docs/nfsdiag.schema.json) — JSON report schema.
+- [docs/COMPATIBILITY.md](docs/COMPATIBILITY.md) — 1.x stability policy.
+- [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md) — adversary model and mitigations.
+- [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md) — CI, Prometheus, JUnit, `--diff` recipes.

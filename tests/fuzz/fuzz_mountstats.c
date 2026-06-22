@@ -1,52 +1,38 @@
 /*
- * Fuzzer: /proc/self/mountstats parser (stats.c).
+ * Fuzzer: /proc/self/mountstats parser — exercises the REAL parser in
+ * src/stats.c (parse_mountstats_stream) over an fmemopen() buffer.
+ *
+ * stats.c is included directly; the report/option/command dependencies it
+ * pulls from other modules are stubbed below.
  *
  * Build:
- *   clang -O1 -g -fsanitize=fuzzer,address \
- *     -I../../src $(pkg-config --cflags libtirpc) \
- *     fuzz_mountstats.c -o fuzz_mountstats \
- *     $(pkg-config --libs libtirpc)
+ *   clang -O1 -g -fsanitize=fuzzer,address -I../../src \
+ *     $(pkg-config --cflags libtirpc) -D_GNU_SOURCE \
+ *     fuzz_mountstats.c -o fuzz_mountstats $(pkg-config --libs libtirpc)
  *
  * Run:
  *   ./fuzz_mountstats -max_total_time=5 corpus/
  */
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include "../../src/stats.c"
 
-/* Reproduce the mountstats parsing loop from stats.c without side-effects. */
-static void parse_mountstats_buf(const char *buf, size_t len) {
-    char line[512];
-    size_t i = 0;
-    while (i < len) {
-        size_t j = 0;
-        while (i < len && buf[i] != '\n' && j < sizeof(line) - 1)
-            line[j++] = buf[i++];
-        if (i < len && buf[i] == '\n') i++;
-        line[j] = '\0';
-
-        /* Mimic the sscanf patterns in stats.c */
-        unsigned long long ops = 0, retrans = 0, major = 0, minor = 0;
-        char opname[64];
-        if (sscanf(line, " %63s %llu %*u %*u %*u %*u %llu", opname, &ops, &retrans) == 3) {
-            (void)ops; (void)retrans;
-        }
-        if (sscanf(line, " nfs4_statfs: %llu %llu", &major, &minor) == 2) {
-            (void)major; (void)minor;
-        }
-    }
+struct options opt;
+void report_ok(const char *fmt, ...)   { (void)fmt; }
+void report_warn(const char *fmt, ...) { (void)fmt; }
+void report_fail(const char *fmt, ...) { (void)fmt; }
+void report_info(const char *fmt, ...) { (void)fmt; }
+void add_recommendation(const char *fmt, ...) { (void)fmt; }
+int resolve_command_path(const char *cmd, char *out, size_t out_sz) {
+    (void)cmd; (void)out; (void)out_sz; return -1;
+}
+int run_command_capture(char *const argv[], char *output, size_t output_sz) {
+    (void)argv; if (output && output_sz) output[0] = '\0'; return -1;
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    /* Null-terminate a copy so sscanf is safe. */
-    char *buf = malloc(size + 1);
-    if (!buf) return 0;
-    memcpy(buf, data, size);
-    buf[size] = '\0';
-    parse_mountstats_buf(buf, size);
-    free(buf);
+    FILE *f = fmemopen((void *)data, size, "r");
+    if (!f) return 0;
+    parse_mountstats_stream(f, "/mnt/nfsdiag-fuzz");
+    fclose(f);
     return 0;
 }

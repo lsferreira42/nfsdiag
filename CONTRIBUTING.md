@@ -12,19 +12,24 @@ make rebuild     # full build
 make check       # unit tests + CLI self-check
 ```
 
-Before opening a PR, make sure the CI gates pass locally:
+Before opening a PR, run the aggregate gate (build + tests + static analysis +
+shell lint):
 
 ```sh
-make "CFLAGS=-O2 -Wall -Wextra -Werror" rebuild   # warnings are errors
-make cppcheck                                      # static analysis
-shellcheck tests/*.sh dockerfiles/common/*.sh      # shell scripts
+make release-check
 ```
 
-When touching versions or CLI options, also run these helper checks:
+It expands to the warnings-as-errors build, `make check`, `make cppcheck` and
+`make shellcheck`. `make check` itself runs the unit tests plus these oracles,
+which you can also run individually:
 
 ```sh
-sh tests/check-versions.sh    # version strings agree across the tree
-sh tests/check-cli-docs.sh    # --help mirrored in README, man, website, completions
+sh tests/check-versions.sh        # version strings agree across the tree
+sh tests/check-json-schema.sh     # JSON report matches docs/nfsdiag.schema.json
+sh tests/check-output-golden.sh   # JSON/NDJSON/JUnit/Prometheus agree on counters
+sh tests/check-cli-docs.sh        # --help mirrored in README, man, website, completions
+sh tests/check-website.sh         # website HTML + internal links
+sh tests/check-signals.sh         # SIGINT/SIGTERM handling and post-run cleanup
 ```
 
 Use focused changes. Keep diagnostics conservative by default and require an
@@ -32,16 +37,35 @@ explicit flag for probes that create unusual filesystem objects or change risk.
 
 ## Tests
 
-- `make check` runs unit tests (`tests/unit-tests.c`) and a local self-test.
+- `make check` runs the unit tests (`tests/unit-tests.c`), the consistency
+  oracles above, and a local self-test.
 - `make test-fixtures` runs the 14 Docker failure fixtures. Ten of them mount
   real NFS exports and need root on the host plus the `nfs`/`nfsd` kernel
   modules: `sudo modprobe nfs nfsd && sudo make test-fixtures`. The runner
-  skips scenarios the host cannot support.
+  skips scenarios the host cannot support, asserts the expected exit code, that
+  the JSON stream is clean, and that no temp files are left in the export. To
+  reproduce one scenario by hand, build its image and run nfsdiag against it:
+  `make docker-build-root-squash && sudo make test-fixture-root-squash`.
 - `make -C tests/fuzz run-all` builds the libFuzzer harnesses (clang required)
-  and runs each for 5 seconds — the same smoke run CI does.
+  and runs each for 5 seconds — the same smoke run CI does. The harnesses drive
+  the real production parsers. Knobs: `FUZZ_SANITIZERS` (default `address`; set
+  `address,undefined` locally, or empty under ptrace/sandboxes where
+  LeakSanitizer aborts) and `FUZZ_RUNS` (default `-max_total_time=5`).
 
 When changing parser, report, mount, or RPC behavior, add a targeted unit,
 fixture, or fuzz regression where practical.
+
+## Security and safety
+
+- Diagnostics are non-destructive by default in the sense that nfsdiag only
+  creates and removes its own uniquely-named files; it never modifies
+  pre-existing data. Anything that writes inside an export must keep that
+  property (random name + `O_CREAT|O_EXCL`), or be gated behind an explicit
+  flag. `--read-only`/`--dry-run` and the `safe`/`readonly` profiles must keep
+  the export untouched.
+- See `docs/THREAT-MODEL.md` for the adversary model and `SECURITY.md` for
+  reporting. Changes to RPC/XDR parsing, mount handling, or rendering of
+  server-controlled strings deserve a fuzz or unit regression.
 
 ## CLI and documentation rules
 

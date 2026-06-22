@@ -1,49 +1,37 @@
 /*
- * Fuzzer: /proc/self/mountinfo parser (main.c / mount option verification).
+ * Fuzzer: /proc/self/mountinfo parser — exercises the REAL parser in
+ * src/stats.c (verify_mount_options_stream) over an fmemopen() buffer.
  *
  * Build:
- *   clang -O1 -g -fsanitize=fuzzer,address \
- *     fuzz_mountinfo.c -o fuzz_mountinfo
+ *   clang -O1 -g -fsanitize=fuzzer,address -I../../src \
+ *     $(pkg-config --cflags libtirpc) -D_GNU_SOURCE \
+ *     fuzz_mountinfo.c -o fuzz_mountinfo $(pkg-config --libs libtirpc)
  *
  * Run:
  *   ./fuzz_mountinfo -max_total_time=5 corpus/
  */
 
-#include <stdint.h>
-#include <stddef.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
+#include "../../src/stats.c"
 
-static void parse_mountinfo_buf(const char *buf, size_t len) {
-    char line[1024];
-    size_t i = 0;
-    while (i < len) {
-        size_t j = 0;
-        while (i < len && buf[i] != '\n' && j < sizeof(line) - 1)
-            line[j++] = buf[i++];
-        if (i < len && buf[i] == '\n') i++;
-        line[j] = '\0';
-
-        /* Mimic the sscanf pattern from mount.c verify_mount_options(). */
-        int mid = 0, parent = 0;
-        unsigned maj = 0, min = 0;
-        char root[256], mpt[256], opts[256], tags[256], fstype[64], src[256], super[256];
-        if (sscanf(line,
-                   "%d %d %u:%u %255s %255s %255s %255s %63s %255s %255s",
-                   &mid, &parent, &maj, &min,
-                   root, mpt, opts, tags, fstype, src, super) >= 7) {
-            (void)mid; (void)parent; (void)maj; (void)min;
-        }
-    }
+struct options opt;
+void report_ok(const char *fmt, ...)   { (void)fmt; }
+void report_warn(const char *fmt, ...) { (void)fmt; }
+void report_fail(const char *fmt, ...) { (void)fmt; }
+void report_info(const char *fmt, ...) { (void)fmt; }
+void add_recommendation(const char *fmt, ...) { (void)fmt; }
+int resolve_command_path(const char *cmd, char *out, size_t out_sz) {
+    (void)cmd; (void)out; (void)out_sz; return -1;
+}
+int run_command_capture(char *const argv[], char *output, size_t output_sz) {
+    (void)argv; if (output && output_sz) output[0] = '\0'; return -1;
 }
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-    char *buf = malloc(size + 1);
-    if (!buf) return 0;
-    memcpy(buf, data, size);
-    buf[size] = '\0';
-    parse_mountinfo_buf(buf, size);
-    free(buf);
+    FILE *f = fmemopen((void *)data, size, "r");
+    if (!f) return 0;
+    struct export_report report;
+    memset(&report, 0, sizeof(report));
+    verify_mount_options_stream(f, "/mnt/nfsdiag-fuzz", &report);
+    fclose(f);
     return 0;
 }

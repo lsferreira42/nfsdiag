@@ -12,7 +12,7 @@
       packages = forAllSystems (pkgs: {
         default = pkgs.stdenv.mkDerivation {
           pname = "nfsdiag";
-          version = "0.10.2";
+          version = "0.11.0";
           src = self;
           nativeBuildInputs = [ pkgs.pkg-config ];
           buildInputs = [ pkgs.libtirpc ];

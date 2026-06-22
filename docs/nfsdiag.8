@@ -1,4 +1,4 @@
-.TH NFSDIAG 8 "2026-06-16" "nfsdiag 0.10.2" "System Administration"
+.TH NFSDIAG 8 "2026-06-22" "nfsdiag 0.11.0" "System Administration"
 .SH NAME
 nfsdiag \- NFS server diagnostic tool
 .SH SYNOPSIS
@@ -138,16 +138,20 @@ Delay in milliseconds between testing each export (rate limiting). Default: 0.
 .SS "Benchmark options"
 .TP
 .BI \-\-bench\-bytes " BYTES"
-Size of the read/write benchmark file. Default: 4194304 (4 MiB).
+Size of the read/write benchmark file, 1 to 1073741824 (1 GiB).
+Default: 4194304 (4 MiB). Zero is rejected; use \fB\-\-bench\-iterations 0\fR to
+skip the benchmark.
 .TP
 .BI \-\-bench\-iterations " N"
 Number of iterations for the metadata latency benchmark. Default: 10.
+\fB0\fR disables the throughput/latency benchmark.
 .TP
 .BI \-\-bench\-type " TYPE"
 Benchmark engine. Valid values: \fBinternal\fR (default), \fBfio\fR.
 .TP
 .BI \-\-stale\-iterations " N"
 Number of stat/readdir iterations in the ESTALE probe loop. Default: 100.
+\fB0\fR disables the ESTALE probe.
 .SS "Output options"
 .TP
 .BI \-\-json[= PATH ]
@@ -193,7 +197,11 @@ Do not delete the temporary mount workspace after tests complete.
 Show all diagnostic steps, including INFO-level events.
 .TP
 .BR \-q ", " \-\-quiet
-Suppress all stdout except the final JSON/HTML report.
+Suppress all human stdout (banner, per-check lines, interpretation and the
+\fBsummary:\fR line) in every output format. Structured reports requested with
+\fB\-\-json\fR/\fB\-\-html\fR, \fB\-\-output\-format\fR or \fB\-\-output\-dir\fR are
+still written to their destinations, including stdout when the destination is
+\fB\-\fR.
 .TP
 .BR \-V ", " \-\-version
 Print \fBnfsdiag \fIVERSION\fR and exit 0.
@@ -206,17 +214,29 @@ Show usage summary and exit 0.
 .SH "EXIT CODES"
 .TP
 .B 0
-All tests passed.
+No warnings or failures were recorded.
 .TP
 .B 1
-At least one warning or failure was detected.
+At least one warning or failure was recorded.
 .TP
 .B 2
-Usage error or runtime failure (bad arguments, missing dependencies).
+Usage error or runtime failure (bad arguments, missing dependencies, unusable
+temporary workspace).
+.PP
+The code reflects the highest severity accumulated across the whole run, not the
+outcome of a single check. It is independent of the output format
+(\fB\-\-json\fR, \fB\-\-output\-format\fR, etc. do not change it). With
+\fB\-\-no\-mount\fR only the pre\-mount network/RPC/export checks contribute. With
+\fB\-\-parallel\fR the per\-export results from every worker are merged before the
+code is computed, so a failure in any export yields 1. The \fBdiff\fR subcommand
+returns 1 when the second report has more warnings or failures than the first
+(a regression), 0 otherwise, and 2 when either summary cannot be parsed.
 .SH "STDOUT SUPPRESSION"
-Stdout is suppressed \fIonly\fR when \fB\-\-json=\-\fR or \fB\-\-html=\-\fR (report
-written to stdout). Writing to a file (\fB\-\-json=report.json\fR) keeps stdout
-active. Use \fB\-\-quiet\fR to suppress stdout when writing to a file.
+Human stdout (banner, per\-check lines, interpretation, \fBsummary:\fR) is emitted
+only for the \fBtext\fR and \fBtable\fR formats. Machine formats (\fBndjson\fR,
+\fBjunit\fR, \fBprometheus\fR) and \fB\-\-json=\-\fR/\fB\-\-html=\-\fR emit only the
+structured document on stdout. \fB\-\-quiet\fR removes the human stdout in all
+cases while still writing any requested report to its destination.
 .SH "ENVIRONMENT"
 .TP
 .B TMPDIR
@@ -283,6 +303,19 @@ Stream events as NDJSON for log pipelines:
 .TP
 Expose metrics for Prometheus scraping:
 .B nfsdiag --output-format=prometheus 192.168.1.100
+.SH "SEVERITY"
+Each diagnostic emits one of four levels. \fBok\fR means the check completed and
+the result is expected. \fBinfo\fR is context that needs no action, including
+optional services that are absent on a server profile where that is normal (for
+example mountd or NLM on an NFSv4\-only server) and per\-version negotiation
+steps. \fBwarn\fR marks a condition that may degrade behaviour but did not stop
+the diagnostic, such as a missing optional capability or a soft mount. \fBfail\fR
+marks a check that could not succeed, for example no reachable RPC service, an
+export that could not be mounted with any NFS version, or a write/permission
+error after mount. Only \fBwarn\fR and \fBfail\fR affect the exit code. Severity
+is chosen for the detected server profile, so failing one version of a cascade
+is reported as \fBinfo\fR while the single inability to mount with any version is
+the \fBfail\fR.
 .SH "SECURITY"
 .B nfsdiag
 is designed to be run as root for full NFS mount access. When running as root,
@@ -291,11 +324,40 @@ polluting the global namespace. Host, export path, and mount options are
 validated before network or mount activity. Risky mount options require
 \fB\-\-allow\-risky\-mount\-options\fR, and unusual filesystem probes require
 \fB\-\-dangerous\-fs\-tests\fR. External helper commands are resolved from trusted
-directories and executed with a minimal environment. Report files are opened with
-\fBO_NOFOLLOW\fR and mode 0600 to prevent symlink-based overwrites. Test file
-paths include a random component to prevent pre-created symlink attacks in shared
-exports. XDR strings from the server are sanitised for control characters before
-display.
+directories and executed with a minimal environment.
+.PP
+Diagnostic mounts use \fBvers=<n>,nosuid,nodev,noexec\fR. The hardening flags
+block setuid binaries, device nodes and execution from an untrusted server and
+are dropped only with \fB\-\-allow\-risky\-mount\-options\fR. \fBtimeo\fR and
+\fBretrans\fR keep the kernel defaults and the mount stays \fBhard\fR; a wedged
+mount is bounded by a killable per\-export worker and \fB\-\-command\-timeout\fR
+rather than by a \fBsoft\fR mount, which could turn server stalls into
+application I/O errors. \fBro\fR is not forced because nfsdiag tests writes;
+pass \fB\-\-read\-only\fR to skip all writes.
+.PP
+Unless \fB\-\-read\-only\fR, \fB\-\-dry\-run\fR or \fB\-\-no\-mount\fR is given,
+nfsdiag writes inside each mounted export: it creates and removes test files for
+the write/benchmark, metadata\-latency, advisory\-lock, ACL, root\-squash and
+special\-filename checks, and a per\-run temporary directory. All such paths are
+created under names that include a per\-run random component and are opened with
+\fBO_CREAT|O_EXCL|O_NOFOLLOW\fR, so a pre\-existing file or symlink at the same
+path is never opened, truncated or removed; only files nfsdiag created are
+cleaned up. The local temporary workspace is created with \fBmkdtemp\fR(3) at
+mode 0700 and validated for ownership. Report files are opened with
+\fBO_NOFOLLOW\fR and mode 0600 to prevent symlink\-based overwrites. XDR strings
+from the server are sanitised for control characters before display. The tool
+performs no destructive operations on existing server data; use
+\fB\-\-read\-only\fR (or the \fBsafe\fR/\fBreadonly\fR profiles) to mount without
+creating anything.
+.SH "JSON COMPATIBILITY"
+The JSON report carries \fBschema_version\fR (currently \fB2.0\fR) and is
+described by a JSON Schema installed at
+.IR \%/usr/share/doc/nfsdiag/nfsdiag.schema.json
+(also in the source tree at \fIdocs/nfsdiag.schema.json\fR). Within a 1.x series
+the major schema version is stable: existing fields keep their name, type and
+meaning, and new optional fields may be added. Field removals or type changes
+bump the major schema version. Human\-readable text, message ordering and event
+wording are not part of the contract and may change between releases.
 .SH "SEE ALSO"
 .BR mount.nfs (8),
 .BR exportfs (8),

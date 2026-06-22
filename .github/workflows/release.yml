@@ -187,7 +187,23 @@ jobs:
       - name: Generate combined checksums
         run: |
           cd dist
-          sha256sum nfsdiag-linux-amd64 nfsdiag-linux-arm64 *.deb *.rpm *.apk 2>/dev/null | tee SHA256SUMS || true
+          sha256sum nfsdiag-linux-amd64 nfsdiag-linux-arm64 *.deb *.rpm *.apk *.spdx.json 2>/dev/null | tee SHA256SUMS || true
+
+      - name: Declare SBOM scope
+        run: |
+          cp dist/*.spdx.json dist/sbom.spdx.json 2>/dev/null || true
+          cat > dist/SBOM-SCOPE.txt <<'EOF'
+          SBOM scope for this release
+          ===========================
+          nfsdiag is a single statically-linkable C program with one runtime
+          dependency (libtirpc). The published *.spdx.json is a source-level SBOM
+          listing every file tracked in the repository at this tag. It applies to
+          all artifacts built from this tag (linux-amd64/arm64 binaries, .deb,
+          .rpm, .apk and the OCI image), which are compiled from exactly that
+          source. Per-artifact binary SBOMs are intentionally not generated: the
+          only non-source input is the platform's libtirpc, recorded as a package
+          dependency in each package's metadata.
+          EOF
 
       - name: Generate provenance
         run: |
@@ -222,5 +238,44 @@ jobs:
             dist/*.apk
             dist/*.spdx.json
             dist/SHA256SUMS
+            dist/SBOM-SCOPE.txt
             dist/PROVENANCE.txt
           generate_release_notes: true
+
+  # ---- post-publish smoke test of the published release ----
+  smoke:
+    needs: [release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: read
+      attestations: read
+    steps:
+      - name: Download published assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${GITHUB_REF_NAME}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern 'nfsdiag-linux-amd64*' \
+            --pattern 'SHA256SUMS' \
+            --dir published
+
+      - name: Verify checksum
+        run: |
+          cd published
+          grep ' nfsdiag-linux-amd64$' SHA256SUMS | sha256sum -c -
+
+      - name: Run the published binary
+        run: |
+          chmod +x published/nfsdiag-linux-amd64
+          published/nfsdiag-linux-amd64 --version
+          published/nfsdiag-linux-amd64 --self-test
+          published/nfsdiag-linux-amd64 --no-mount --timeout 2 127.0.0.1 || true
+
+      - name: Verify build provenance attestation
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh attestation verify published/nfsdiag-linux-amd64 \
+            --repo "${GITHUB_REPOSITORY}"

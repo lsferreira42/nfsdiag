@@ -97,12 +97,12 @@ static int parse_groups_arg(const char *s) {
     if (!copy) return -1;
     char *save = NULL;
     for (const char *tok = strtok_r(copy, ",", &save); tok; tok = strtok_r(NULL, ",", &save)) {
-        unsigned long value;
-        if (parse_ulong_arg(tok, &value) != 0 || opt.supplemental_group_count >= MAX_SUPP_GROUPS) {
+        gid_t gid;
+        if (parse_gid_arg(tok, &gid) != 0 || opt.supplemental_group_count >= MAX_SUPP_GROUPS) {
             free(copy);
             return -1;
         }
-        opt.supplemental_groups[opt.supplemental_group_count++] = (gid_t)value;
+        opt.supplemental_groups[opt.supplemental_group_count++] = gid;
     }
     free(copy);
     return 0;
@@ -217,7 +217,7 @@ static void load_config_file(const char *path) {
             opt.command_timeout_sec = (int)num;
         else if (strcmp(key, "fs-timeout") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= 3600)
             opt.fs_timeout_sec = (int)num;
-        else if (strcmp(key, "bench-bytes") == 0 && parse_ulong_arg(val, &num) == 0 && num <= (1024UL*1024UL*1024UL))
+        else if (strcmp(key, "bench-bytes") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= (1024UL*1024UL*1024UL))
             opt.bench_bytes = (size_t)num;
         else if (strcmp(key, "bench-iterations") == 0 && parse_ulong_arg(val, &num) == 0 && num <= 100000)
             opt.bench_iterations = (int)num;
@@ -318,36 +318,7 @@ static int apply_profile(const char *profile) {
 }
 
 static void remember_argv(int argc, char **argv) {
-    sanitized_argv[0] = '\0';
-    size_t used = 0;
-    int redact_next = 0;
-    for (int i = 0; i < argc; i++) {
-        const char *arg = argv[i] ? argv[i] : "";
-        char clean[512];
-        /* Mount options may carry sensitive material (paths, credentials in
-         * future sec= flavors); redact their values in the evidence record. */
-        if (redact_next) {
-            snprintf(clean, sizeof(clean), "<redacted>");
-            redact_next = 0;
-        } else if (strcmp(arg, "-o") == 0 || strcmp(arg, "--mount-options") == 0) {
-            snprintf(clean, sizeof(clean), "%s", arg);
-            redact_next = 1;
-        } else if (strncmp(arg, "--mount-options=", 16) == 0) {
-            snprintf(clean, sizeof(clean), "--mount-options=<redacted>");
-        } else if (strncmp(arg, "-o", 2) == 0 && arg[2] != '\0') {
-            snprintf(clean, sizeof(clean), "-o<redacted>");
-        } else {
-            size_t j = 0;
-            for (const unsigned char *p = (const unsigned char *)arg; *p && j + 1 < sizeof(clean); p++) {
-                clean[j++] = (*p < 0x20 || *p == 0x7f) ? '?' : (char)*p;
-            }
-            clean[j] = '\0';
-        }
-        int n = snprintf(sanitized_argv + used, sizeof(sanitized_argv) - used,
-                         "%s%s", used ? " " : "", clean);
-        if (n < 0 || (size_t)n >= sizeof(sanitized_argv) - used) break;
-        used += (size_t)n;
-    }
+    redact_argv(sanitized_argv, sizeof(sanitized_argv), argc, argv);
 }
 
 static int prepare_output_dir(const char *host) {
@@ -540,10 +511,10 @@ static void usage(const char *p) {
     printf("      --fs-timeout SEC       Timeout for each filesystem test group. Default: %d\n", DEFAULT_FS_TIMEOUT_SEC);
     printf("      --delay-ms MS          Delay between testing each export (rate limit). Default: 0\n");
     printf("\nBenchmark options:\n");
-    printf("      --bench-bytes BYTES    Bytes for read/write benchmark. Default: %u\n", DEFAULT_BENCH_BYTES);
-    printf("      --bench-iterations N   Metadata latency iterations. Default: %d\n", DEFAULT_BENCH_ITERATIONS);
+    printf("      --bench-bytes BYTES    Bytes for read/write benchmark (1..1 GiB). Default: %u\n", DEFAULT_BENCH_BYTES);
+    printf("      --bench-iterations N   Metadata latency iterations (0 disables). Default: %d\n", DEFAULT_BENCH_ITERATIONS);
     printf("      --bench-type TYPE      Benchmark engine: 'internal' or 'fio'. Default: internal\n");
-    printf("      --stale-iterations N   ESTALE probe loop iterations. Default: %d\n", DEFAULT_STALE_ITERATIONS);
+    printf("      --stale-iterations N   ESTALE probe loop iterations (0 disables). Default: %d\n", DEFAULT_STALE_ITERATIONS);
     printf("\nOutput options:\n");
     printf("      --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)\n");
     printf("      --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)\n");
@@ -554,13 +525,13 @@ static void usage(const char *p) {
     printf("                              re-runs diagnostics every --watch SEC (default 60)\n");
     printf("      --keep-temp            Keep temp workspace after tests\n");
     printf("  -v, --verbose              Show all diagnostic steps\n");
-    printf("  -q, --quiet                Suppress stdout (combine with --json=FILE or --html=FILE)\n");
+    printf("  -q, --quiet                Suppress human stdout (banner, checks, summary) in all formats\n");
     printf("  -V, --version              Print version and exit\n");
     printf("      --self-test            Validate local dependencies and pure helper checks\n");
     printf("  -h, --help                 Show this help\n");
     printf("\nExit codes: 0=pass  1=warn/fail  2=usage/runtime error\n");
-    printf("Stdout suppression: active only when --json=- or --html=- (report to stdout).\n");
-    printf("  Use --quiet to suppress stdout when writing a report to a file.\n");
+    printf("Human stdout prints only for text/table formats; machine formats and --json=-/--html=-\n");
+    printf("  emit only the structured document. --quiet removes human stdout in every case.\n");
 }
 
 /* ---- on-fail-exec hook ---- */
@@ -790,6 +761,85 @@ static int merge_parallel_result(int fd, size_t idx) {
     return hdr.unmount_failed;
 }
 
+/* Headroom over the per-operation timeouts the child enforces itself, so the
+ * watchdog only fires when a child is genuinely wedged (e.g. a hard NFS mount
+ * that does not honour its own alarm). */
+static int worker_deadline_sec(void) {
+    long d = (long)opt.command_timeout_sec + opt.fs_timeout_sec + opt.timeout_sec + 30;
+    if (opt.bench_iterations > 0) d += opt.fs_timeout_sec;
+    if (d > 86400) d = 86400;
+    return (int)d;
+}
+
+/* Wait until the worker's pipe has data or the deadline elapses. Returns 0 if
+ * readable (the child finished the risky mount phase before writing), -1 on
+ * timeout or interruption so the caller can kill a hung worker. */
+static int wait_worker_ready(int fd, int deadline_sec) {
+    struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+    time_t end = time(NULL) + deadline_sec;
+    for (;;) {
+        long remaining = (long)(end - time(NULL));
+        if (remaining < 0) remaining = 0;
+        int rc = poll(&pfd, 1, (int)(remaining * 1000));
+        if (rc > 0) return 0;
+        if (rc == 0) return -1;
+        if (errno == EINTR) {
+            if (received_signal) return -1;
+            continue;
+        }
+        return -1;
+    }
+}
+
+/* Run one export's diagnostics in a killable child so a wedged hard mount
+ * cannot pin the main process. Returns 1 if the mountpoint must be kept
+ * (unmount failed, worker killed, or no result), else 0. */
+static int run_export_isolated(const char *host, const struct export_item *exp,
+                               size_t idx, const char *mp) {
+    int pfd[2];
+    if (pipe(pfd) != 0) {
+        report_fail("pipe failed for export worker: %s", strerror(errno));
+        return 0;
+    }
+    register_mountpoint(mp);
+    pid_t pid = fork();
+    if (pid < 0) {
+        close(pfd[0]);
+        close(pfd[1]);
+        unregister_mountpoint(mp);
+        report_fail("fork failed for export worker: %s", strerror(errno));
+        return 0;
+    }
+    if (pid == 0) {
+        close(pfd[0]);
+        parallel_child(pfd[1], host, exp, idx, mp);
+        _exit(1);
+    }
+    close(pfd[1]);
+
+    int deadline = worker_deadline_sec();
+    int killed = wait_worker_ready(pfd[0], deadline) != 0;
+    if (killed) kill(pid, SIGKILL);
+    int unfail = killed ? -1 : merge_parallel_result(pfd[0], idx);
+    close(pfd[0]);
+    int status = 0;
+    while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+
+    if (killed) {
+        report_fail("export %s exceeded the %ds worker deadline; killed a possibly hung mount",
+                    exp->path, deadline);
+        return 1;
+    }
+    if (unfail < 0) {
+        report_warn("export worker for %s returned no result; mountpoint kept for cleanup",
+                    exp->path);
+        return 1;
+    }
+    if (unfail > 0) return 1;
+    unregister_mountpoint(mp);
+    return 0;
+}
+
 static void run_exports_parallel(const char *host, const struct export_list *ex) {
     struct worker {
         pid_t  pid;
@@ -867,12 +917,19 @@ static void run_exports_parallel(const char *host, const struct export_list *ex)
             }
         }
 
+        int deadline = worker_deadline_sec();
         for (size_t k = 0; k < launched; k++) {
-            int unfail = merge_parallel_result(w[k].fd, w[k].idx);
+            int killed = wait_worker_ready(w[k].fd, deadline) != 0;
+            if (killed) kill(w[k].pid, SIGKILL);
+            int unfail = killed ? -1 : merge_parallel_result(w[k].fd, w[k].idx);
             close(w[k].fd);
             int status = 0;
             while (waitpid(w[k].pid, &status, 0) < 0 && errno == EINTR) {}
-            if (unfail < 0) {
+            if (killed) {
+                report_fail("parallel export worker %zu exceeded the %ds deadline; "
+                            "killed a possibly hung mount", w[k].idx + 1, deadline);
+                opt.keep_temp = 1;
+            } else if (unfail < 0) {
                 report_warn("parallel worker for export %zu returned no result; "
                             "its mountpoint stays registered for cleanup", w[k].idx + 1);
                 opt.keep_temp = 1;
@@ -968,8 +1025,9 @@ static int run_diagnostics_for_host(const char *host) {
 
     enable_report_only_output();
     /* The banner is for humans: machine formats (ndjson, prometheus, junit)
-     * must emit nothing on stdout besides the format itself. */
-    if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+     * must emit nothing on stdout besides the format itself, and --quiet
+     * silences human stdout entirely. */
+    if (!opt.quiet && (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE))
         printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
     warn_risky_mount_options(opt.mount_options);
 
@@ -990,7 +1048,7 @@ static int run_diagnostics_for_host(const char *host) {
     if (opt.no_mount) {
         report_info("mount and live filesystem diagnostics skipped by --no-mount");
         print_interpretation();
-        if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+        if (!opt.quiet && (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE))
             printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
         write_json_report(host);
         write_html_report(host);
@@ -1062,9 +1120,19 @@ static int run_diagnostics_for_host(const char *host) {
             }
 
             size_t idx = export_report_count;
-            if (export_report_count < MAX_EXPORT_REPORTS) export_report_count++;
-            if (test_one_export(host, &exports_found.items[i], idx, mp))
-                opt.keep_temp = 1;
+            if (export_report_count < MAX_EXPORT_REPORTS) {
+                struct export_report *rpt = &export_reports[idx];
+                memset(rpt, 0, sizeof(*rpt));
+                snprintf(rpt->path, sizeof(rpt->path), "%s", exports_found.items[i].path);
+                export_report_count++;
+            }
+            /* dry-run cannot block (no real mount), so keep it in-process; real
+             * mounts run in a killable worker so a hung hard mount cannot pin
+             * the main process. */
+            int keep = opt.dry_run
+                ? test_one_export(host, &exports_found.items[i], idx, mp)
+                : run_export_isolated(host, &exports_found.items[i], idx, mp);
+            if (keep) opt.keep_temp = 1;
         }
     }
 
@@ -1097,7 +1165,7 @@ static int run_diagnostics_for_host(const char *host) {
     else { cleanup_temp_tree(); report_ok("temporary workspace removed"); }
 
     print_interpretation();
-    if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE)
+    if (!opt.quiet && (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE))
         printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
     write_json_report(host);
     write_html_report(host);
@@ -1208,6 +1276,12 @@ static int run_listen_mode(const char *host) {
 }
 
 int main(int argc, char **argv) {
+    /* Pin the C locale so number parsing/formatting in reports and parsers is
+     * independent of the caller's environment (decimal point, thousands
+     * grouping, collation). nfsdiag emits ASCII/UTF-8 bytes directly, so this
+     * does not affect rendering. */
+    setlocale(LC_ALL, "C");
+
     remember_argv(argc, argv);
     if (argc == 4 && strcmp(argv[1], "diff") == 0)
         return diff_reports(argv[2], argv[3]);
@@ -1300,15 +1374,19 @@ int main(int argc, char **argv) {
         case 1001: opt.keep_temp = 1; break;
         case 1002: opt.write_test = 0; break;
         case 1019: opt.dry_run = 1; break;
-        case 1003:
-            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --uid: %s (expected a non-negative integer)\n", optarg); return 2; }
-            add_identity((uid_t)value, default_gid_for_uid((uid_t)value));
+        case 1003: {
+            uid_t uid;
+            if (parse_uid_arg(optarg, &uid) != 0) { fprintf(stderr, "invalid --uid: %s (expected 0..%lu)\n", optarg, (unsigned long)((uid_t)-1 - 1)); return 2; }
+            add_identity(uid, default_gid_for_uid(uid));
             break;
-        case 1004:
-            if (parse_ulong_arg(optarg, &value) != 0) { fprintf(stderr, "invalid --gid: %s (expected a non-negative integer)\n", optarg); return 2; }
-            if (opt.identity_count == 0) add_identity(geteuid(), (gid_t)value);
-            else opt.gids[opt.identity_count - 1] = (gid_t)value;
+        }
+        case 1004: {
+            gid_t gid;
+            if (parse_gid_arg(optarg, &gid) != 0) { fprintf(stderr, "invalid --gid: %s (expected 0..%lu)\n", optarg, (unsigned long)((gid_t)-1 - 1)); return 2; }
+            if (opt.identity_count == 0) add_identity(geteuid(), gid);
+            else opt.gids[opt.identity_count - 1] = gid;
             break;
+        }
         case 1005:
             if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             opt.timeout_sec = (int)value;
@@ -1318,7 +1396,7 @@ int main(int argc, char **argv) {
             opt.stale_iterations = (int)value;
             break;
         case 1007:
-            if (parse_ulong_arg(optarg, &value) != 0 || value > (1024UL * 1024UL * 1024UL)) { fprintf(stderr, "invalid --bench-bytes: %s (0-1073741824 bytes)\n", optarg); return 2; }
+            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > (1024UL * 1024UL * 1024UL)) { fprintf(stderr, "invalid --bench-bytes: %s (1-1073741824 bytes; use --bench-iterations 0 to skip the benchmark)\n", optarg); return 2; }
             opt.bench_bytes = (size_t)value;
             break;
         case 1022:

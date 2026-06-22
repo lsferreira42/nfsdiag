@@ -165,7 +165,12 @@ int capture_rpc_stats(struct rpc_stats *out) {
         out->valid = 0;
         return -1;
     }
+    int rc = capture_rpc_stats_stream(f, out);
+    fclose(f);
+    return rc;
+}
 
+int capture_rpc_stats_stream(FILE *f, struct rpc_stats *out) {
     char line[1024];
     int net_ok = 0, rpc_ok = 0;
     while (fgets(line, sizeof(line), f)) {
@@ -177,7 +182,6 @@ int capture_rpc_stats(struct rpc_stats *out) {
                        &out->rpc_calls, &out->rpc_retrans, &out->rpc_auth_refresh) == 3);
         }
     }
-    fclose(f);
     out->valid = net_ok && rpc_ok;
     return out->valid ? 0 : -1;
 }
@@ -218,7 +222,11 @@ void parse_mountstats(const char *mountpoint) {
         report_info("cannot read /proc/self/mountstats: %s", strerror(errno));
         return;
     }
+    parse_mountstats_stream(f, mountpoint);
+    fclose(f);
+}
 
+void parse_mountstats_stream(FILE *f, const char *mountpoint) {
     char line[2048];
     int found = 0;
     int in_section = 0;
@@ -296,7 +304,6 @@ void parse_mountstats(const char *mountpoint) {
         }
     }
 
-    fclose(f);
     if (!found) report_info("mountstats entry not found for %s", mountpoint);
 }
 
@@ -308,7 +315,12 @@ void verify_mount_options(const char *mountpoint, struct export_report *report) 
         report_info("cannot read /proc/self/mountinfo: %s", strerror(errno));
         return;
     }
+    verify_mount_options_stream(f, mountpoint, report);
+    fclose(f);
+}
 
+void verify_mount_options_stream(FILE *f, const char *mountpoint,
+                                 struct export_report *report) {
     char line[4096];
     while (fgets(line, sizeof(line), f)) {
         /* format: id parent major:minor root mount_point mount_options optional ... - type source super_options */
@@ -355,11 +367,9 @@ void verify_mount_options(const char *mountpoint, struct export_report *report) 
         if (has_noatime)  report_info("noatime is set (reduces GETATTR calls)");
         if (has_nconnect) report_info("nconnect detected (multiple TCP connections per mount)");
 
-        fclose(f);
         return;
     }
 
-    fclose(f);
     report_info("mountinfo entry not found for %s", mountpoint);
 }
 

@@ -27,6 +27,65 @@ static void test_parse_ulong_arg(void) {
               "ulong: reject overflow");
 }
 
+static void test_parse_id_arg(void) {
+    uid_t uid = 0;
+    gid_t gid = 0;
+
+    expect_ok(parse_uid_arg("0", &uid) == 0 && uid == 0, "uid: zero");
+    expect_ok(parse_uid_arg("1000", &uid) == 0 && uid == 1000, "uid: plain");
+    expect_ok(parse_uid_arg("4294967294", &uid) == 0 && uid == 4294967294u,
+              "uid: largest valid 32-bit value");
+    expect_ok(parse_uid_arg("4294967295", &uid) != 0,
+              "uid: reject reserved (uid_t)-1");
+    expect_ok(parse_uid_arg("4294967296", &uid) != 0,
+              "uid: reject value that truncates on cast");
+    expect_ok(parse_uid_arg("-1", &uid) != 0, "uid: reject negative");
+    expect_ok(parse_uid_arg("12x", &uid) != 0, "uid: reject trailing garbage");
+
+    expect_ok(parse_gid_arg("0", &gid) == 0 && gid == 0, "gid: zero");
+    expect_ok(parse_gid_arg("4294967295", &gid) != 0,
+              "gid: reject reserved (gid_t)-1");
+    expect_ok(parse_gid_arg("4294967296", &gid) != 0,
+              "gid: reject value that truncates on cast");
+}
+
+static void test_redact_argv(void) {
+    char out[4096];
+
+    char *a1[] = {"nfsdiag", "-o", "vers=4,sec=krb5p", "host"};
+    redact_argv(out, sizeof(out), 4, a1);
+    expect_ok(strstr(out, "krb5p") == NULL && strstr(out, "-o <redacted>") != NULL,
+              "redact: -o value");
+
+    char *a2[] = {"nfsdiag", "--mount-options=vers=4,sec=krb5p", "host"};
+    redact_argv(out, sizeof(out), 3, a2);
+    expect_ok(strstr(out, "krb5p") == NULL &&
+              strstr(out, "--mount-options=<redacted>") != NULL,
+              "redact: --mount-options= inline");
+
+    char *a3[] = {"nfsdiag", "--config", "/etc/secret.conf", "host"};
+    redact_argv(out, sizeof(out), 4, a3);
+    expect_ok(strstr(out, "secret.conf") == NULL && strstr(out, "--config <redacted>") != NULL,
+              "redact: --config path");
+
+    char *a4[] = {"nfsdiag", "--on-fail-exec=/opt/hooks/page.sh", "host"};
+    redact_argv(out, sizeof(out), 3, a4);
+    expect_ok(strstr(out, "page.sh") == NULL &&
+              strstr(out, "--on-fail-exec=<redacted>") != NULL,
+              "redact: --on-fail-exec= inline");
+
+    char *a5[] = {"nfsdiag", "--no-mount", "192.168.0.1"};
+    redact_argv(out, sizeof(out), 3, a5);
+    expect_ok(strcmp(out, "nfsdiag --no-mount 192.168.0.1") == 0,
+              "redact: non-sensitive args preserved");
+
+    char *a6[] = {"nfsdiag", "host\x01\x1bname"};
+    redact_argv(out, sizeof(out), 2, a6);
+    expect_ok(strstr(out, "\x01") == NULL && strstr(out, "\x1b") == NULL &&
+              strstr(out, "host??name") != NULL,
+              "redact: control bytes stripped");
+}
+
 static void test_validate_host(void) {
     char reason[256];
 
@@ -149,6 +208,8 @@ static void test_event_metadata(void) {
 
 int main(void) {
     test_parse_ulong_arg();
+    test_parse_id_arg();
+    test_redact_argv();
     test_validate_host();
     test_validate_export();
     test_validate_mount_options();
