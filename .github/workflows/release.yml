@@ -248,7 +248,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: read
       attestations: read
     steps:
       - name: Download published assets

@@ -328,7 +328,17 @@ jobs:
       - name: Validate metrics with promtool
         run: |
           ./nfsdiag --no-mount --timeout 2 --output-format prometheus 127.0.0.1 > metrics.txt || true
-          promtool check metrics < metrics.txt
+          # promtool lints the names: nfsdiag_summary_{ok,warn,fail} trip the
+          # "metric name should not include type" rule because "summary" is also
+          # a Prometheus metric type. These are published contract names, so that
+          # specific lint is expected; fail on any other promtool finding.
+          out=$(promtool check metrics < metrics.txt 2>&1) && status=0 || status=$?
+          echo "$out"
+          unexpected=$(echo "$out" | grep -vE "metric name should not include type 'summary'" | grep -E '.' || true)
+          if [ -n "$unexpected" ]; then
+            echo "promtool reported unexpected issues:"; echo "$unexpected"; exit 1
+          fi
+          echo "promtool: only the expected nfsdiag_summary naming lint (status=$status)"
 
   # ---- DEB build, lint and install/remove smoke ----
   package-deb:
@@ -392,7 +402,9 @@ jobs:
           dnf install -y ./build/*.rpm
           nfsdiag --version
           nfsdiag --self-test
-          test -f /usr/share/man/man8/nfsdiag.8.gz
+          # The man page ships compressed; the extension (.gz/.zst) is the
+          # distro's choice, so check the packaged file list instead of a path.
+          rpm -ql nfsdiag | grep -qE '/man8/nfsdiag\.8'
           rpm -e nfsdiag
 
   # ---- APK build and install smoke (abuild on Alpine) ----
@@ -426,9 +438,11 @@ jobs:
               echo "depends=\"libtirpc\""
               echo "source=\"\""
               echo "build() { :; }"
+              echo "options=\"!check\""
               echo "package() {"
               echo "  install -Dm755 nfsdiag \"\$pkgdir\"/usr/bin/nfsdiag"
-              echo "  install -Dm644 docs/nfsdiag.8 \"\$pkgdir\"/usr/share/man/man8/nfsdiag.8"
+              echo "  gzip -9n < docs/nfsdiag.8 > nfsdiag.8.gz"
+              echo "  install -Dm644 nfsdiag.8.gz \"\$pkgdir\"/usr/share/man/man8/nfsdiag.8.gz"
               echo "  install -Dm644 LICENSE \"\$pkgdir\"/usr/share/licenses/nfsdiag/LICENSE"
               echo "}"
             } > APKBUILD
@@ -462,16 +476,19 @@ jobs:
           su builder -c 'cd /home/builder && makepkg --printsrcinfo >/dev/null'
 
   # ---- Nix flake check ----
+  # Runs on the host (so actions/checkout works) and drives Nix inside the
+  # official container — the minimal nixos/nix image cannot run the JS-based
+  # checkout action itself.
   nix:
     name: nix flake check
     runs-on: ubuntu-latest
-    container:
-      image: nixos/nix:latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Flake check and build
         run: |
-          nix --extra-experimental-features 'nix-command flakes' flake check
-          nix --extra-experimental-features 'nix-command flakes' build
-          ./result/bin/nfsdiag --version
+          docker run --rm -v "$PWD:/work" -w /work nixos/nix:latest sh -ec '
+            nix --extra-experimental-features "nix-command flakes" flake check
+            nix --extra-experimental-features "nix-command flakes" build
+            ./result/bin/nfsdiag --version
+          '

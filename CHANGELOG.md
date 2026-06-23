@@ -8,8 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.11.0] - 2026-06-22
-
 ### Fixed
 - Per-export filesystem diagnostics now run in a killable child process with a
   hard deadline in both sequential and parallel mode, so a wedged hard mount can
