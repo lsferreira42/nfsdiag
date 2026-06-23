@@ -488,7 +488,12 @@ jobs:
       - name: Flake check and build
         run: |
           docker run --rm -v "$PWD:/work" -w /work nixos/nix:latest sh -ec '
+            # The checkout is owned by the host runner user but nix runs as root
+            # in the container; mark it safe so libgit2 will read the flake.
+            git config --global --add safe.directory "*"
             nix --extra-experimental-features "nix-command flakes" flake check
-            nix --extra-experimental-features "nix-command flakes" build
-            ./result/bin/nfsdiag --version
+            # Out-link in /tmp so no root-owned files land in the workspace and
+            # break the post-job cleanup on the host.
+            nix --extra-experimental-features "nix-command flakes" build --out-link /tmp/result
+            /tmp/result/bin/nfsdiag --version
           '
