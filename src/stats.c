@@ -226,6 +226,23 @@ void parse_mountstats(const char *mountpoint) {
     fclose(f);
 }
 
+/* Parse a /proc/self/mountstats or /proc/self/mountinfo device line and return
+ * 1 if its mount point matches 'mountpoint', 0 otherwise.  Used in both
+ * parse_mountstats_stream() and tests.c to avoid duplicated bounds-checked
+ * parsing that could diverge over time. */
+int match_mountpoint_line(const char *line, const char *mountpoint) {
+    const char *mop = strstr(line, " mounted on ");
+    if (!mop) return 0;
+    const char *mp_start = mop + 12;
+    const char *mp_end = strstr(mp_start, " with fstype");
+    if (!mp_end) return 0;
+    size_t mp_len = (size_t)(mp_end - mp_start);
+    char dev_mp[4096] = {0};
+    if (mp_len >= sizeof(dev_mp)) return 0;
+    memcpy(dev_mp, mp_start, mp_len);
+    return strcmp(dev_mp, mountpoint) == 0;
+}
+
 void parse_mountstats_stream(FILE *f, const char *mountpoint) {
     char line[2048];
     int found = 0;
@@ -235,20 +252,7 @@ void parse_mountstats_stream(FILE *f, const char *mountpoint) {
         /* device lines start with "device " */
         if (strncmp(line, "device ", 7) == 0) {
             /* Parse "device <src> mounted on <mp> with fstype <type>" exactly */
-            char *mop = strstr(line, " mounted on ");
-            int matched = 0;
-            if (mop) {
-                char *mp_start = mop + 12;
-                const char *mp_end = strstr(mp_start, " with fstype");
-                if (mp_end) {
-                    size_t mp_len = (size_t)(mp_end - mp_start);
-                    char dev_mp[4096] = {0};
-                    if (mp_len < sizeof(dev_mp)) {
-                        memcpy(dev_mp, mp_start, mp_len);
-                        matched = (strcmp(dev_mp, mountpoint) == 0);
-                    }
-                }
-            }
+            int matched = match_mountpoint_line(line, mountpoint);
             if (matched) {
                 found = 1;
                 in_section = 1;

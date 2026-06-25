@@ -367,6 +367,7 @@ int  capture_rpc_stats(struct rpc_stats *out);
 int  capture_rpc_stats_stream(FILE *f, struct rpc_stats *out);
 void report_rpc_stats_diff(const struct rpc_stats *before,
                            const struct rpc_stats *after);
+int  match_mountpoint_line(const char *line, const char *mountpoint);
 void parse_mountstats(const char *mountpoint);
 void parse_mountstats_stream(FILE *f, const char *mountpoint);
 void verify_mount_options(const char *mountpoint, struct export_report *report);

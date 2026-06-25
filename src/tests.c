@@ -730,20 +730,7 @@ static void test_nfsv4_delegation(const char *mp, int nfs_version) {
         if (strncmp(line, "device ", 7) == 0) {
             /* Match the section for this mountpoint exactly, the same way
              * parse_mountstats() does. */
-            char *mop = strstr(line, " mounted on ");
-            int matched = 0;
-            if (mop) {
-                char *s = mop + 12;
-                const char *e = strstr(s, " with fstype");
-                if (e) {
-                    size_t len = (size_t)(e - s);
-                    char dev_mp[4096] = {0};
-                    if (len < sizeof(dev_mp)) {
-                        memcpy(dev_mp, s, len);
-                        matched = (strcmp(dev_mp, mp) == 0);
-                    }
-                }
-            }
+            int matched = match_mountpoint_line(line, mp);
             in_section = matched;
             continue;
         }
