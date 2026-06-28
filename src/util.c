@@ -35,6 +35,8 @@ FILE *fopen_regular_ro(const char *path) {
     struct stat st;
     if (fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) { close(fd); return NULL; }
     FILE *f = fdopen(fd, "r");
+    /* fdopen() does not close the fd on failure */
+    // cppcheck-suppress doubleFree
     if (!f) close(fd);
     return f;
 }

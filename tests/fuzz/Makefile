@@ -27,9 +27,10 @@ all: $(TARGETS)
 
 # Each target includes the real production .c it fuzzes; the harness file stubs
 # the report/option symbols those modules import from the rest of the tree.
-# validation.c is linked for fuzz_xdr_exports' validate_export_path.
-fuzz_xdr_exports: fuzz_xdr_exports.c ../../src/rpc.c ../../src/validation.c
-	$(CLANG) $(COMMON_CFLAGS) $< ../../src/validation.c -o $@ $(TIRPC_LIBS)
+# validation.c is linked for fuzz_xdr_exports' validate_export_path; util.c for
+# rpc.c's service_missing_is_warning.
+fuzz_xdr_exports: fuzz_xdr_exports.c ../../src/rpc.c ../../src/validation.c ../../src/util.c
+	$(CLANG) $(COMMON_CFLAGS) $< ../../src/validation.c ../../src/util.c -o $@ $(TIRPC_LIBS)
 
 # stats.c (included by the harness) now calls util.c helpers (avg_per_op_ms,
 # mountinfo_unescape); util.c's parse_bounded_int in turn needs validation.c's
