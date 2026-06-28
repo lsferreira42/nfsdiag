@@ -71,9 +71,31 @@ static void sanitize_cmd_output(char *s) {
     }
 }
 
+/* Drain everything currently readable from fd into output (up to cap-1 bytes),
+ * discarding the overflow. Returns the last read() result so the caller can
+ * distinguish EOF/EAGAIN/error. *used is advanced by bytes stored. */
+static ssize_t drain_fd(int fd, char *output, size_t cap, size_t *used) {
+    ssize_t n;
+    do {
+        if (*used < cap - 1) {
+            n = read(fd, output + *used, cap - *used - 1);
+            if (n > 0) *used += (size_t)n;
+        } else {
+            char discard[4096];
+            n = read(fd, discard, sizeof(discard));
+        }
+    } while (n > 0);
+    return n;
+}
+
 int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     int pipefd[2];
     if (output_sz == 0) return -1;
+    /* Always keep room at the end of the buffer for the timeout note so it is
+     * never truncated away when the command produced a lot of output. */
+    const char timeout_note_fmt[] = "command timed out after %d seconds";
+    size_t reserve = sizeof(timeout_note_fmt) + 16; /* +16 for the integer + "\n" */
+    size_t cap = output_sz > reserve ? output_sz - reserve : output_sz;
     if (pipe(pipefd) != 0) return -1;
 
     pid_t pid = fork();
@@ -114,16 +136,7 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     time_t deadline = time(NULL) + opt.command_timeout_sec;
 
     for (;;) {
-        ssize_t n;
-        do {
-            if (used < output_sz - 1) {
-                n = read(pipefd[0], output + used, output_sz - used - 1);
-                if (n > 0) used += (size_t)n;
-            } else {
-                char discard[4096];
-                n = read(pipefd[0], discard, sizeof(discard));
-            }
-        } while (n > 0);
+        ssize_t n = drain_fd(pipefd[0], output, cap, &used);
         if (n < 0 && errno != EAGAIN && errno != EINTR) break;
 
         pid_t wr = waitpid(pid, &status, WNOHANG);
@@ -137,8 +150,7 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
             kill(-pid, SIGKILL);
             while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
             if (output_sz) {
-                snprintf(output + (used < output_sz ? used : output_sz - 1),
-                         used < output_sz ? output_sz - used : 1,
+                snprintf(output + used, output_sz - used,
                          "%scommand timed out after %d seconds",
                          used ? "\n" : "", opt.command_timeout_sec);
                 sanitize_cmd_output(output);
@@ -152,16 +164,7 @@ int run_command_capture(char *const argv[], char *output, size_t output_sz) {
     }
 
     /* drain remaining output after child exits */
-    ssize_t n;
-    do {
-        if (used < output_sz - 1) {
-            n = read(pipefd[0], output + used, output_sz - used - 1);
-            if (n > 0) used += (size_t)n;
-        } else {
-            char discard[4096];
-            n = read(pipefd[0], discard, sizeof(discard));
-        }
-    } while (n > 0);
+    (void)drain_fd(pipefd[0], output, cap, &used);
     if (output_sz) {
         output[used < output_sz ? used : output_sz - 1] = '\0';
         sanitize_cmd_output(output);
@@ -205,8 +208,13 @@ void unregister_mountpoint(const char *mountpoint) {
 
 int make_dir(const char *path, mode_t mode) {
     if (mkdir(path, mode) == 0) return 0;
-    if (errno == EEXIST) return 0;
-    return -1;
+    if (errno != EEXIST) return -1;
+    /* Defense in depth: an existing entry must be a real directory we own and
+     * not a symlink swapped in by another local user. */
+    struct stat st;
+    if (lstat(path, &st) != 0) return -1;
+    if (!S_ISDIR(st.st_mode) || st.st_uid != geteuid()) { errno = EEXIST; return -1; }
+    return 0;
 }
 
 static void compose_source(char *dst, size_t dst_sz, const char *host,
@@ -219,14 +227,17 @@ static void compose_source(char *dst, size_t dst_sz, const char *host,
 }
 
 static void compose_options(char *dst, size_t dst_sz, const char *version) {
-    /* Default hardening: the server is untrusted, so block setuid binaries,
-     * device nodes and direct execution from the mount. Skipped only when the
-     * user explicitly accepts risk via --allow-risky-mount-options. */
-    const char *hardening = opt.allow_risky_mount_options ? "" : ",nosuid,nodev,noexec";
-    if (opt.mount_options && opt.mount_options[0])
-        snprintf(dst, dst_sz, "vers=%s%s,%s", version, hardening, opt.mount_options);
-    else
-        snprintf(dst, dst_sz, "vers=%s%s", version, hardening);
+    /* Default hardening: untrusted server, so block setuid binaries, device
+     * nodes and direct execution unless --allow-risky-mount-options is set.
+     * Hardening tokens already present in the user options are not duplicated. */
+    const char *user = (opt.mount_options && opt.mount_options[0]) ? opt.mount_options : "";
+    snprintf(dst, dst_sz, "vers=%s", version);
+    if (*user) {
+        size_t used = strlen(dst);
+        snprintf(dst + used, dst_sz - used, ",%s", user);
+    }
+    if (!opt.allow_risky_mount_options)
+        csv_append_missing(dst, dst_sz, "nosuid,nodev,noexec", user);
 }
 
 /* ---- mount with NFSv4.2/4.1/4/3 cascade ---- */

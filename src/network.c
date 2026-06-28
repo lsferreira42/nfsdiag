@@ -85,45 +85,75 @@ int tcp_connect_timeout(const char *host, int port, int timeout_sec) {
 
 /* ---- TCP connect latency and path MTU ---- */
 
-static void measure_connect_latency(const char *host, int port) {
+/* Time SAMPLES connects to (host,port), excluding name resolution (resolved
+ * once up front), then read the path MTU from the last connected socket. */
+static void measure_connect_and_mtu(const char *host, int port) {
+    struct addrinfo hints, *res = NULL;
+    char portstr[32];
+    memset(&hints, 0, sizeof(hints));
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_family   = opt.address_family;
+    snprintf(portstr, sizeof(portstr), "%d", port);
+    if (getaddrinfo(host, portstr, &hints, &res) != 0 || !res) {
+        if (res) freeaddrinfo(res);
+        return;
+    }
+
     enum { SAMPLES = 3 };
     double total = 0, lo = 0, hi = 0;
-    int n = 0;
+    int n = 0, last_fd = -1, last_family = AF_UNSPEC;
+
     for (int i = 0; i < SAMPLES; i++) {
         struct timespec a, b;
+        int fd = -1, fam = AF_UNSPEC;
         clock_gettime(CLOCK_MONOTONIC, &a);
-        int fd = tcp_connect_fd(host, port, opt.timeout_sec, NULL);
+        for (struct addrinfo *rp = res; rp; rp = rp->ai_next) {
+            fd = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+            if (fd < 0) continue;
+            int flags = fcntl(fd, F_GETFL, 0);
+            if (flags >= 0) fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+            int rc = connect(fd, rp->ai_addr, rp->ai_addrlen);
+            if (rc == 0) { fam = rp->ai_family; break; }
+            if (errno == EINPROGRESS) {
+                struct pollfd pfd = { .fd = fd, .events = POLLOUT };
+                if (poll(&pfd, 1, opt.timeout_sec * 1000) > 0) {
+                    int soerr = 0; socklen_t sl = sizeof(soerr);
+                    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &soerr, &sl) == 0 &&
+                        soerr == 0) { fam = rp->ai_family; break; }
+                }
+            }
+            close(fd); fd = -1;
+        }
         clock_gettime(CLOCK_MONOTONIC, &b);
         if (fd < 0) break;
-        close(fd);
         double ms = (double)(b.tv_sec - a.tv_sec) * 1000.0 +
                     (double)(b.tv_nsec - a.tv_nsec) / 1000000.0;
         if (n == 0 || ms < lo) lo = ms;
         if (n == 0 || ms > hi) hi = ms;
-        total += ms;
-        n++;
+        total += ms; n++;
+        if (last_fd >= 0) close(last_fd);
+        last_fd = fd; last_family = fam;
     }
-    if (n > 0)
-        report_ok("TCP connect latency to port %d: min=%.2fms avg=%.2fms max=%.2fms (%d samples; includes name resolution)",
-                  port, lo, total / n, hi, n);
-}
+    freeaddrinfo(res);
 
-static void report_path_mtu(const char *host, int port) {
-    int family = AF_UNSPEC;
-    int fd = tcp_connect_fd(host, port, opt.timeout_sec, &family);
-    if (fd < 0) return;
-    int mtu = 0;
-    socklen_t len = sizeof(mtu);
-    int rc = -1;
-    if (family == AF_INET6)
-        rc = getsockopt(fd, IPPROTO_IPV6, IPV6_MTU, &mtu, &len);
-    else
-        rc = getsockopt(fd, IPPROTO_IP, IP_MTU, &mtu, &len);
-    close(fd);
-    if (rc == 0 && mtu > 0) {
-        report_info("path MTU towards server (via port %d): %d bytes", port, mtu);
-        if (mtu < 1500)
-            report_warn("path MTU %d is below 1500; fragmentation or tunnel overhead may hurt NFS throughput", mtu);
+    if (n > 0)
+        report_ok("TCP connect latency to port %d: min=%.2fms avg=%.2fms max=%.2fms "
+                  "(%d samples; excludes name resolution)",
+                  port, lo, total / n, hi, n);
+
+    if (last_fd >= 0) {
+        int mtu = 0; socklen_t len = sizeof(mtu); int rc = -1;
+        if (last_family == AF_INET6)
+            rc = getsockopt(last_fd, IPPROTO_IPV6, IPV6_MTU, &mtu, &len);
+        else
+            rc = getsockopt(last_fd, IPPROTO_IP, IP_MTU, &mtu, &len);
+        close(last_fd);
+        if (rc == 0 && mtu > 0) {
+            report_info("path MTU towards server (via port %d): %d bytes", port, mtu);
+            if (mtu < 1500)
+                report_warn("path MTU %d is below 1500; fragmentation or tunnel "
+                            "overhead may hurt NFS throughput", mtu);
+        }
     }
 }
 
@@ -155,8 +185,7 @@ void network_tests(const char *host) {
 
     if (tcp_connect_timeout(host, NFS_PORT, opt.timeout_sec) == 0) {
         report_ok("NFS TCP port %d reachable", NFS_PORT);
-        measure_connect_latency(host, NFS_PORT);
-        report_path_mtu(host, NFS_PORT);
+        measure_connect_and_mtu(host, NFS_PORT);
     } else {
         report_fail("NFS TCP port %d unreachable: %s", NFS_PORT, strerror(errno));
         add_recommendation("TCP/%d is unreachable: verify nfsd/ganesha is running and allowed through firewalls/security groups.", NFS_PORT);

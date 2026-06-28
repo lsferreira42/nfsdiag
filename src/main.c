@@ -69,6 +69,11 @@ static void cleanup_all(void) {
     }
     cleanup_temp_tree();
 
+    free(export_reports);
+    export_reports = NULL;
+    export_report_cap = 0;
+    export_report_count = 0;
+
     if (saved_stdout_fd >= 0) {
         close(saved_stdout_fd);
         saved_stdout_fd = -1;
@@ -211,12 +216,15 @@ static void load_config_file(const char *path) {
         while (*val == ' ' || *val == '\t') val++;
 
         unsigned long num;
-        if (strcmp(key, "timeout") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= 3600)
-            opt.timeout_sec = (int)num;
-        else if (strcmp(key, "command-timeout") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= 3600)
-            opt.command_timeout_sec = (int)num;
-        else if (strcmp(key, "fs-timeout") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= 3600)
-            opt.fs_timeout_sec = (int)num;
+        if (strcmp(key, "timeout") == 0) {
+            parse_bounded_int(val, 1, 3600, &opt.timeout_sec);
+        }
+        else if (strcmp(key, "command-timeout") == 0) {
+            parse_bounded_int(val, 1, 3600, &opt.command_timeout_sec);
+        }
+        else if (strcmp(key, "fs-timeout") == 0) {
+            parse_bounded_int(val, 1, 3600, &opt.fs_timeout_sec);
+        }
         else if (strcmp(key, "bench-bytes") == 0 && parse_ulong_arg(val, &num) == 0 && num > 0 && num <= (1024UL*1024UL*1024UL))
             opt.bench_bytes = (size_t)num;
         else if (strcmp(key, "bench-iterations") == 0 && parse_ulong_arg(val, &num) == 0 && num <= 100000)
@@ -403,7 +411,7 @@ static void write_output_dir_evidence(const char *host) {
 }
 
 static int extract_summary_value(const char *path, const char *key, long *out) {
-    FILE *f = fopen(path, "r");
+    FILE *f = fopen_regular_ro(path);
     if (!f) return -1;
     /* Read the whole report: a fixed buffer silently truncated large reports
      * and made the summary unfindable. 64 MiB sanity cap. */
@@ -598,10 +606,10 @@ static void run_on_fail_exec(const char *host) {
 /* Returns 1 when the unmount failed and the mountpoint was left in place. */
 static int test_one_export(const char *host, const struct export_item *exp,
                            size_t idx, const char *mp) {
-    if (idx < MAX_EXPORT_REPORTS) {
-        struct export_report *rpt = &export_reports[idx];
-        memset(rpt, 0, sizeof(*rpt));
-        snprintf(rpt->path, sizeof(rpt->path), "%s", exp->path);
+    struct export_report *rpt0 = export_report_at(idx);
+    if (rpt0) {
+        memset(rpt0, 0, sizeof(*rpt0));
+        snprintf(rpt0->path, sizeof(rpt0->path), "%s", exp->path);
     }
 
     if (opt.verbose) printf("\n[+] Mount test for export %s\n", exp->path);
@@ -735,8 +743,10 @@ static int merge_parallel_result(int fd, size_t idx) {
     struct par_result_hdr hdr;
     if (read_full(fd, &hdr, sizeof(hdr)) != 0) return -1;
     if (hdr.n_events > MAX_EVENTS || hdr.n_recs > MAX_RECOMMENDATIONS) return -1;
-    if (hdr.have_rpt && idx < MAX_EXPORT_REPORTS)
-        export_reports[idx] = hdr.rpt;
+    if (hdr.have_rpt) {
+        struct export_report *slot = export_report_at(idx);
+        if (slot) *slot = hdr.rpt;
+    }
 
     for (size_t e = 0; e < hdr.n_events; e++) {
         struct par_event_hdr eh;
@@ -874,8 +884,8 @@ static void run_exports_parallel(const char *host, const struct export_list *ex)
             }
 
             size_t idx = export_report_count;
-            if (export_report_count < MAX_EXPORT_REPORTS) {
-                struct export_report *rpt = &export_reports[idx];
+            struct export_report *rpt = export_report_at(idx);
+            if (rpt) {
                 memset(rpt, 0, sizeof(*rpt));
                 snprintf(rpt->path, sizeof(rpt->path), "%s",
                          ex->items[list_idx].path);
@@ -1027,8 +1037,7 @@ static int run_diagnostics_for_host(const char *host) {
     /* The banner is for humans: machine formats (ndjson, prometheus, junit)
      * must emit nothing on stdout besides the format itself, and --quiet
      * silences human stdout entirely. */
-    if (!opt.quiet && (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE))
-        printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
+    report_banner(host);
     warn_risky_mount_options(opt.mount_options);
 
     check_client_daemons();
@@ -1048,8 +1057,7 @@ static int run_diagnostics_for_host(const char *host) {
     if (opt.no_mount) {
         report_info("mount and live filesystem diagnostics skipped by --no-mount");
         print_interpretation();
-        if (!opt.quiet && (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE))
-            printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
+        report_summary_line();
         write_json_report(host);
         write_html_report(host);
         write_table_report(host);
@@ -1120,8 +1128,8 @@ static int run_diagnostics_for_host(const char *host) {
             }
 
             size_t idx = export_report_count;
-            if (export_report_count < MAX_EXPORT_REPORTS) {
-                struct export_report *rpt = &export_reports[idx];
+            struct export_report *rpt = export_report_at(idx);
+            if (rpt) {
                 memset(rpt, 0, sizeof(*rpt));
                 snprintf(rpt->path, sizeof(rpt->path), "%s", exports_found.items[i].path);
                 export_report_count++;
@@ -1232,7 +1240,10 @@ static int run_listen_mode(const char *host) {
         close(s);
         return 2;
     }
-    signal(SIGPIPE, SIG_IGN);
+    struct sigaction pipe_sa;
+    memset(&pipe_sa, 0, sizeof(pipe_sa));
+    pipe_sa.sa_handler = SIG_IGN;
+    sigaction(SIGPIPE, &pipe_sa, NULL);
 
     int interval = opt.watch_interval > 0 ? opt.watch_interval : 60;
     printf("[listen] serving Prometheus metrics on %s port %d, refreshing every %ds\n",
@@ -1252,20 +1263,44 @@ static int run_listen_mode(const char *host) {
             struct pollfd pfd = { .fd = s, .events = POLLIN };
             int pr = poll(&pfd, 1, 500);
             if (pr <= 0) continue;
-            int c = accept(s, NULL, NULL);
+            int c = accept4(s, NULL, NULL, SOCK_CLOEXEC);
             if (c < 0) continue;
+            /* Bound how long a slow or silent client can hold the accept loop. */
+            struct timeval cto = { .tv_sec = 5, .tv_usec = 0 };
+            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &cto, sizeof(cto));
+            setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &cto, sizeof(cto));
+
             char req[1024];
-            if (read(c, req, sizeof(req)) < 0) { /* request body is irrelevant */ }
+            ssize_t rn = recv(c, req, sizeof(req) - 1, 0);
+            char path[256] = {0};
+            int is_get = rn > 0 &&
+                http_request_is_get(req, (size_t)rn, path, sizeof(path));
+            int metrics = is_get &&
+                (strcmp(path, "/metrics") == 0 || strcmp(path, "/") == 0);
+
             char hdr[256];
-            int hl = snprintf(hdr, sizeof(hdr),
-                              "HTTP/1.0 200 OK\r\n"
-                              "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-                              "Content-Length: %zu\r\n"
-                              "Connection: close\r\n\r\n", snap_len);
-            if (hl > 0) {
-                (void)send(c, hdr, (size_t)hl, MSG_NOSIGNAL);
-                if (snapshot)
-                    (void)send(c, snapshot, snap_len, MSG_NOSIGNAL);
+            if (metrics) {
+                int hl = snprintf(hdr, sizeof(hdr),
+                                  "HTTP/1.0 200 OK\r\n"
+                                  "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
+                                  "Content-Length: %zu\r\n"
+                                  "Connection: close\r\n\r\n", snap_len);
+                if (hl > 0) {
+                    (void)send(c, hdr, (size_t)hl, MSG_NOSIGNAL);
+                    if (snapshot) (void)send(c, snapshot, snap_len, MSG_NOSIGNAL);
+                }
+            } else {
+                const char *body = is_get ? "404 not found\n" : "405 method not allowed\n";
+                const char *status = is_get ? "404 Not Found" : "405 Method Not Allowed";
+                int hl = snprintf(hdr, sizeof(hdr),
+                                  "HTTP/1.0 %s\r\n"
+                                  "Content-Type: text/plain; charset=utf-8\r\n"
+                                  "Content-Length: %zu\r\n"
+                                  "Connection: close\r\n\r\n", status, strlen(body));
+                if (hl > 0) {
+                    (void)send(c, hdr, (size_t)hl, MSG_NOSIGNAL);
+                    (void)send(c, body, strlen(body), MSG_NOSIGNAL);
+                }
             }
             close(c);
         }
@@ -1354,6 +1389,19 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Apply --profile before getopt so it only sets defaults: any explicit flag
+     * parsed by getopt below then overrides the profile regardless of where it
+     * appears on the command line. The last --profile wins, matching getopt. */
+    const char *profile_arg = NULL;
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--profile") == 0 && i + 1 < argc)
+            profile_arg = argv[i + 1];
+        else if (strncmp(argv[i], "--profile=", 10) == 0)
+            profile_arg = argv[i] + 10;
+    }
+    if (profile_arg && apply_profile(profile_arg) != 0)
+        return 2;
+
     int c;
     while ((c = getopt_long(argc, argv, "e:o:vqVh", long_opts, NULL)) != -1) {
         unsigned long value;
@@ -1388,8 +1436,7 @@ int main(int argc, char **argv) {
             break;
         }
         case 1005:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --timeout: %s (1-3600 seconds)\n", optarg); return 2; }
-            opt.timeout_sec = (int)value;
+            if (parse_bounded_int(optarg, 1, 3600, &opt.timeout_sec) != 0) { fprintf(stderr, "invalid --timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             break;
         case 1006:
             if (parse_ulong_arg(optarg, &value) != 0 || value > 1000000UL) { fprintf(stderr, "invalid --stale-iterations: %s (0-1000000)\n", optarg); return 2; }
@@ -1407,8 +1454,7 @@ int main(int argc, char **argv) {
             opt.bench_type = optarg;
             break;
         case 1008:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --command-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
-            opt.command_timeout_sec = (int)value;
+            if (parse_bounded_int(optarg, 1, 3600, &opt.command_timeout_sec) != 0) { fprintf(stderr, "invalid --command-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             break;
         case 1009: opt.mount_namespace = 1; break;
         case 1010:
@@ -1431,8 +1477,7 @@ int main(int argc, char **argv) {
             opt.bench_iterations = (int)value;
             break;
         case 1017:
-            if (parse_ulong_arg(optarg, &value) != 0 || value == 0 || value > 3600) { fprintf(stderr, "invalid --fs-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
-            opt.fs_timeout_sec = (int)value;
+            if (parse_bounded_int(optarg, 1, 3600, &opt.fs_timeout_sec) != 0) { fprintf(stderr, "invalid --fs-timeout: %s (1-3600 seconds)\n", optarg); return 2; }
             break;
         case 1020:
             if (parse_ulong_arg(optarg, &value) != 0 || value > 600000) { fprintf(stderr, "invalid --delay-ms: %s (0-600000 ms)\n", optarg); return 2; }
@@ -1458,7 +1503,8 @@ int main(int argc, char **argv) {
         case 1029: opt.dangerous_fs_tests = 1; break;
         case 1030: opt.no_mount_namespace = 1; opt.mount_namespace = 0; break;
         case 1031:
-            if (apply_profile(optarg) != 0) return 2;
+            /* Already validated and applied in the pre-getopt pass above so the
+             * profile acts as defaults; explicit flags here override it. */
             break;
         case 1032: opt.output_dir = optarg; break;
         case 1033: opt.self_test = 1; break;

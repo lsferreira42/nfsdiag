@@ -1,5 +1,6 @@
 nfsdiag
 *.o
+compile_commands.json
 todo.*
 build/
 tests/fuzz/corpus/

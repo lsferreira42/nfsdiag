@@ -216,16 +216,6 @@ void report_rpc_stats_diff(const struct rpc_stats *before, const struct rpc_stat
 
 /* ---- /proc/self/mountstats parsing ---- */
 
-void parse_mountstats(const char *mountpoint) {
-    FILE *f = fopen("/proc/self/mountstats", "r");
-    if (!f) {
-        report_info("cannot read /proc/self/mountstats: %s", strerror(errno));
-        return;
-    }
-    parse_mountstats_stream(f, mountpoint);
-    fclose(f);
-}
-
 void parse_mountstats_stream(FILE *f, const char *mountpoint) {
     char line[2048];
     int found = 0;
@@ -293,7 +283,7 @@ void parse_mountstats_stream(FILE *f, const char *mountpoint) {
                             strcmp(opname, "GETATTR") == 0 ||
                             strcmp(opname, "LOOKUP") == 0 ||
                             strcmp(opname, "ACCESS") == 0)) {
-                double avg_rtt = (double)rtt_us / (double)ops / 1000.0;
+                double avg_rtt = avg_per_op_ms(rtt_us, ops);
                 report_info("mountstats %s ops=%lu trans=%lu timeouts=%lu avg_rtt=%.2fms",
                            opname, ops, trans, timeouts, avg_rtt);
                 if (timeouts > 0) {
@@ -332,7 +322,9 @@ void verify_mount_options_stream(FILE *f, const char *mountpoint,
         n = sscanf(line, "%d %d %u:%u %4095s %4095s %2047s",
                    &id, &parent, &major, &minor, root, mp, mount_opts);
         if (n < 7) continue;
-        if (strcmp(mp, mountpoint) != 0) continue;
+        char mp_decoded[4096];
+        mountinfo_unescape(mp_decoded, sizeof(mp_decoded), mp);
+        if (strcmp(mp_decoded, mountpoint) != 0) continue;
 
         /* find the " - " separator for fs type and super options */
         const char *sep = strstr(line, " - ");

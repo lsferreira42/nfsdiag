@@ -18,6 +18,8 @@ static int fill_file(int fd, size_t bytes) {
     return 0;
 }
 
+static int g_random_degraded = 0;
+
 static uint32_t test_random(void) {
     uint32_t rnd = 0;
     if (getrandom(&rnd, sizeof(rnd), 0) < 0) {
@@ -27,8 +29,10 @@ static uint32_t test_random(void) {
             got = read(rfd, &rnd, sizeof(rnd));
             close(rfd);
         }
-        if (got != (ssize_t)sizeof(rnd))
+        if (got != (ssize_t)sizeof(rnd)) {
             rnd = (uint32_t)(time(NULL) ^ getpid());
+            g_random_degraded = 1;
+        }
     }
     return rnd;
 }
@@ -593,6 +597,11 @@ static void test_identity_simulation(const char *mp) {
     for (size_t i = 0; i < opt.identity_count; i++) {
         uid_t uid = opt.uids[i]; gid_t gid = opt.gids[i];
         if (uid != geteuid() && geteuid() != 0) { report_warn("cannot simulate uid=%lu gid=%lu without root", (unsigned long)uid, (unsigned long)gid); continue; }
+        if (opt.supplemental_group_count > 0 && geteuid() != 0) {
+            report_warn("supplemental groups for uid=%lu require root; skipping group simulation",
+                        (unsigned long)uid);
+            continue;
+        }
         pid_t pid = fork();
         if (pid < 0) { report_warn("fork failed for identity simulation: %s", strerror(errno)); continue; }
         if (pid == 0) child_identity_probe(mp, uid, gid);
@@ -692,36 +701,32 @@ static void test_long_filenames(const char *mp) {
 
 /* ---- NFSv4 delegation detection ---- */
 
-static void test_nfsv4_delegation(const char *mp, int nfs_version) {
-    if (nfs_version < 4) return;
-
+/* Encourage the server to hand out a delegation by opening and reading a file.
+ * Run before reading mountstats; DELEGRETURN activity then shows up there. */
+static void delegation_probe(const char *mp, int nfs_version) {
+    if (nfs_version < 4 || !opt.write_test) return;
     struct sigaction old_sa;
     arm_fs_timeout(&old_sa);
-
-    /* Encourage the server to hand out a delegation by opening and reading a
-     * file, then look at the per-mount RPC op table. Delegation activity is
-     * recorded as DELEGRETURN operations in /proc/self/mountstats. */
-    if (opt.write_test) {
-        char path[4096];
-        make_test_path(path, sizeof(path), mp, "deleg-probe");
-        int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
-        if (fd >= 0) {
-            if (write(fd, "x", 1) == 1) {
-                char b;
-                lseek(fd, 0, SEEK_SET);
-                if (read(fd, &b, 1) < 0) { /* only the NFS ops matter, not the data */ }
-            }
-            close(fd);
-            cleanup_test_path(path);
+    char path[4096];
+    make_test_path(path, sizeof(path), mp, "deleg-probe");
+    int fd = open(path, O_CREAT | O_RDWR | O_CLOEXEC | O_NOFOLLOW, 0600);
+    if (fd >= 0) {
+        if (write(fd, "x", 1) == 1) {
+            char b;
+            lseek(fd, 0, SEEK_SET);
+            if (read(fd, &b, 1) < 0) { /* only the NFS ops matter, not the data */ }
         }
+        close(fd);
+        cleanup_test_path(path);
     }
+    disarm_fs_timeout(&old_sa);
+}
 
-    FILE *f = fopen("/proc/self/mountstats", "r");
-    if (!f) {
-        report_info("NFSv4 delegation check: /proc/self/mountstats not readable");
-        disarm_fs_timeout(&old_sa);
-        return;
-    }
+/* Parse the DELEGRETURN counter for mp from an already-open mountstats stream.
+ * Does not open or close the stream so the same read can also feed
+ * parse_mountstats_stream(). */
+static void delegation_from_stream(FILE *f, const char *mp, int nfs_version) {
+    if (nfs_version < 4) return;
 
     char line[2048];
     int in_section = 0, seen = 0;
@@ -756,8 +761,6 @@ static void test_nfsv4_delegation(const char *mp, int nfs_version) {
             break;
         }
     }
-    fclose(f);
-    disarm_fs_timeout(&old_sa);
 
     if (!seen)
         report_info("NFSv4 delegation state not exposed for this mount (no DELEGRETURN counter in mountstats)");
@@ -771,6 +774,11 @@ void diagnose_mounted_export(const char *export_path, const char *mountpoint,
                              int export_idx, int nfs_version, int nfs_minor) {
     if (opt.verbose) printf("\n[+] Mounted export diagnostics: %s at %s\n", export_path, mountpoint);
     current_export_idx = export_idx;
+    if (g_random_degraded && opt.write_test) {
+        report_warn("no secure entropy source; disabling write tests for safety on %s",
+                    export_path);
+        opt.write_test = 0;
+    }
     struct export_report *rpt = &export_reports[export_idx];
     test_basic_mount_info(mountpoint);
     test_directory_access(mountpoint);
@@ -785,10 +793,20 @@ void diagnose_mounted_export(const char *export_path, const char *mountpoint,
     test_copy_file_range(mountpoint);
     test_fallocate_odirect(mountpoint);
     test_close_to_open(mountpoint);
-    test_nfsv4_delegation(mountpoint, nfs_version);
+    /* Encourage a delegation before the metadata/stale phases, then read
+     * /proc/self/mountstats once for both delegation state and op stats. */
+    delegation_probe(mountpoint, nfs_version);
     test_metadata_latency(mountpoint, rpt);
     test_stale_loop(mountpoint, rpt);
-    parse_mountstats(mountpoint);
+    FILE *ms = fopen("/proc/self/mountstats", "r");
+    if (ms) {
+        delegation_from_stream(ms, mountpoint, nfs_version);
+        rewind(ms);
+        parse_mountstats_stream(ms, mountpoint);
+        fclose(ms);
+    } else {
+        report_info("cannot read /proc/self/mountstats: %s", strerror(errno));
+    }
     verify_mount_options(mountpoint, rpt);
     check_nfsfs_servers(mountpoint);
     (void)nfs_minor; /* stored in export_report already */

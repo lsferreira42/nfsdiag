@@ -31,14 +31,17 @@ all: $(TARGETS)
 fuzz_xdr_exports: fuzz_xdr_exports.c ../../src/rpc.c ../../src/validation.c
 	$(CLANG) $(COMMON_CFLAGS) $< ../../src/validation.c -o $@ $(TIRPC_LIBS)
 
-fuzz_mountstats: fuzz_mountstats.c ../../src/stats.c
-	$(CLANG) $(COMMON_CFLAGS) $< -o $@ $(TIRPC_LIBS)
+# stats.c (included by the harness) now calls util.c helpers (avg_per_op_ms,
+# mountinfo_unescape); util.c's parse_bounded_int in turn needs validation.c's
+# parse_ulong_arg, so both are linked in. report_* are stubbed by the harness.
+fuzz_mountstats: fuzz_mountstats.c ../../src/stats.c ../../src/util.c ../../src/validation.c
+	$(CLANG) $(COMMON_CFLAGS) $< ../../src/util.c ../../src/validation.c -o $@ $(TIRPC_LIBS)
 
-fuzz_mountinfo: fuzz_mountinfo.c ../../src/stats.c
-	$(CLANG) $(COMMON_CFLAGS) $< -o $@ $(TIRPC_LIBS)
+fuzz_mountinfo: fuzz_mountinfo.c ../../src/stats.c ../../src/util.c ../../src/validation.c
+	$(CLANG) $(COMMON_CFLAGS) $< ../../src/util.c ../../src/validation.c -o $@ $(TIRPC_LIBS)
 
-fuzz_rpcstats: fuzz_rpcstats.c ../../src/stats.c
-	$(CLANG) $(COMMON_CFLAGS) $< -o $@ $(TIRPC_LIBS)
+fuzz_rpcstats: fuzz_rpcstats.c ../../src/stats.c ../../src/util.c ../../src/validation.c
+	$(CLANG) $(COMMON_CFLAGS) $< ../../src/util.c ../../src/validation.c -o $@ $(TIRPC_LIBS)
 
 # Smoke run: each target for FUZZ_RUNS (a short budget by default).
 run-all: $(TARGETS)

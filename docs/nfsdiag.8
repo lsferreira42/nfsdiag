@@ -104,6 +104,9 @@ Without this flag those options are rejected before mounting.
 .BI \-\-profile " NAME"
 Apply a preset. Valid values: \fBquick\fR, \fBsafe\fR, \fBfull\fR,
 \fBperformance\fR, \fBsecurity\fR, \fBreadonly\fR.
+A profile sets defaults only; any explicit option given on the command line
+overrides the profile regardless of where it appears relative to
+\fB\-\-profile\fR.
 .TP
 .BI \-\-hosts\-file " FILE"
 Read one host per line from \fIFILE\fR and run diagnostics for each. Lines

@@ -313,7 +313,6 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
             freeaddrinfo(res);
 
             if (list) {
-                report_ok("RPC service map fetched");
                 for (struct pmaplist *p = list; p; p = p->pml_next) {
                     rpc_services_add(svc, p->pml_map.pm_prog, p->pml_map.pm_vers,
                                      p->pml_map.pm_prot, p->pml_map.pm_port);
@@ -343,25 +342,31 @@ void check_rpcbind(const char *host, struct rpc_services *svc) {
     /* IPv6 path or portmapper fallback: try the modern rpcbind v3/v4 DUMP
      * first (works over IPv6 and returns real ports), then fall back to
      * probing programs individually. */
-    if (rpcb_dump_services(host, svc) > 0) {
-        report_ok("RPC service map fetched via rpcbind v3/v4 DUMP");
+    if (rpcb_dump_services(host, svc) > 0)
         goto check_services;
-    }
     if (opt.address_family == AF_INET6) {
         report_info("IPv6 selected and rpcbind DUMP unavailable; using direct RPC probing");
     } else {
         report_info("portmapper and rpcbind DUMP queries failed; falling back to direct RPC probing");
     }
     probe_rpc_programs(host, svc);
-    if (svc->len > 0) report_ok("RPC services detected via direct probing");
-    else report_fail("no RPC services detected via direct probing");
 
 check_services:
+    /* Single discovery outcome, independent of which mechanism answered
+     * (portmapper / rpcbind DUMP / direct probing), so summary_ok reflects the
+     * result rather than the path taken. */
+    if (svc->len > 0)
+        report_ok("RPC service map obtained (%zu entries)", svc->len);
+    else
+        report_fail("no RPC services detected");
+
     /* Decide the server profile before judging missing services: on an
      * NFSv4-only server the absence of mountd/NLM/NSM/NFSv3 is expected, not a
      * problem, so those become info instead of warn. */
     detected_profile = classify_server_profile(svc);
-    int v4_only = (detected_profile == PROFILE_NFSV4_ONLY);
+    /* Central severity policy: missing legacy services are info on NFSv4-only
+     * servers, warnings otherwise. */
+    int v4_only = !service_missing_is_warning(detected_profile);
 
     if (rpc_services_has(svc, NFS_PROGRAM))
         report_ok("NFS service is registered in rpcbind");
@@ -501,7 +506,7 @@ void enumerate_exports(const char *host, struct export_list *out) {
                 continue;
             }
             out->items[out->count].path        = path_dup;
-            out->items[out->count].groups      = calloc(1, sizeof(char *));
+            out->items[out->count].groups      = NULL;
             out->items[out->count].group_count = 0;
             out->count++;
             report_info("using export supplied by user: %s", opt.cli_exports[i]);
@@ -588,12 +593,6 @@ void fingerprint_server(const struct rpc_services *svc) {
         return;
     }
 
-    int has_nfs3 = rpc_services_has_version(svc, NFS_PROGRAM, 3);
-    int has_nfs4 = rpc_services_has_version(svc, NFS_PROGRAM, 4);
-    int has_mountd = rpc_services_has(svc, MOUNT_PROGRAM);
-    int has_nlm = rpc_services_has(svc, NLM_PROGRAM);
-    int has_nsm = rpc_services_has(svc, NSM_PROGRAM);
-
     unsigned long mountd_port = 0, nlm_port = 0;
     for (size_t i = 0; i < svc->len; i++) {
         if (svc->items[i].prog == MOUNT_PROGRAM && svc->items[i].port && !mountd_port)
@@ -603,16 +602,20 @@ void fingerprint_server(const struct rpc_services *svc) {
     }
 
     const char *guess;
-    if (mountd_port == 4046 && nlm_port == 4045)
+    if (mountd_port == 4046 && nlm_port == 4045) {
         guess = "fixed-port appliance layout (NetApp ONTAP-style: mountd=4046, nlm=4045)";
-    else if (!has_mountd && has_nfs4 && !has_nfs3)
-        guess = "NFSv4-only server (modern Linux export, NFS-Ganesha, or appliance)";
-    else if (has_mountd && has_nfs3 && has_nfs4 && has_nlm && has_nsm)
-        guess = "full v3+v4 stack with mountd/lockd/statd (Linux knfsd-style)";
-    else if (has_nfs3 && !has_nfs4)
-        guess = "NFSv3-only server (legacy export or appliance with v4 disabled)";
-    else
-        guess = "mixed/unusual service layout; no confident match";
+    } else {
+        switch (classify_server_profile(svc)) {
+        case PROFILE_NFSV4_ONLY:
+            guess = "NFSv4-only server (modern Linux export, NFS-Ganesha, or appliance)"; break;
+        case PROFILE_NFSV3_ONLY:
+            guess = "NFSv3-only server (legacy export or appliance with v4 disabled)"; break;
+        case PROFILE_MIXED:
+            guess = "full v3+v4 stack (Linux knfsd-style)"; break;
+        default:
+            guess = "mixed/unusual service layout; no confident match"; break;
+        }
+    }
 
     report_info("server fingerprint (heuristic): %s", guess);
 }

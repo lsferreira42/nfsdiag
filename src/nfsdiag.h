@@ -262,8 +262,10 @@ extern int                 summary_ok;
 extern int                 summary_warn;
 extern int                 summary_fail;
 extern int                 current_export_idx;
-extern struct export_report export_reports[];
+extern struct export_report *export_reports;
 extern size_t              export_report_count;
+extern size_t              export_report_cap;
+struct export_report *export_report_at(size_t idx);
 
 /* ---- report.c ---- */
 
@@ -283,6 +285,8 @@ void write_prometheus_report(const char *host);
 void write_junit_report(const char *host);
 char *prometheus_snapshot(const char *host);
 void print_interpretation(void);
+void report_banner(const char *host);
+void report_summary_line(void);
 
 /* ---- network.c ---- */
 
@@ -367,7 +371,6 @@ int  capture_rpc_stats(struct rpc_stats *out);
 int  capture_rpc_stats_stream(FILE *f, struct rpc_stats *out);
 void report_rpc_stats_diff(const struct rpc_stats *before,
                            const struct rpc_stats *after);
-void parse_mountstats(const char *mountpoint);
 void parse_mountstats_stream(FILE *f, const char *mountpoint);
 void verify_mount_options(const char *mountpoint, struct export_report *report);
 void verify_mount_options_stream(FILE *f, const char *mountpoint,
@@ -392,5 +395,17 @@ const char *event_category_for_message(const char *level, const char *message);
 void event_check_id(char *dst, size_t dst_sz, const char *level,
                     const char *category, const char *message);
 const char *event_remediation_for(const char *category, const char *message);
+
+/* ---- util.c (pure, unit-tested helpers) ---- */
+
+double avg_per_op_ms(unsigned long total_ms, unsigned long ops);
+void utf8_truncate(char *dst, size_t dst_sz, const char *src, size_t max_cols);
+int http_request_is_get(const char *req, size_t len, char *path_out, size_t path_sz);
+int parse_bounded_int(const char *s, unsigned long lo, unsigned long hi, int *out);
+int service_missing_is_warning(enum server_profile profile);
+FILE *fopen_regular_ro(const char *path);
+void mountinfo_unescape(char *dst, size_t dst_sz, const char *src);
+void csv_append_missing(char *dst, size_t dst_sz, const char *tokens,
+                        const char *existing);
 
 #endif /* NFSDIAG_H */

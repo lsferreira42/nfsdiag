@@ -68,7 +68,7 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=unmatchedSuppression \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
-.PHONY: all clean distclean rebuild check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild strict compile-commands check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -79,6 +79,15 @@ $(SRCDIR)/%.o: $(SRCDIR)/%.c $(SRCDIR)/nfsdiag.h
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 rebuild: clean all
+
+# Stricter local build surface than CI's -Werror; opt-in for contributors.
+strict:
+	$(MAKE) "CFLAGS=-O2 -Wall -Wextra -Werror -Wshadow -Wconversion -Wpointer-arith" rebuild
+
+# Generate compile_commands.json for clangd/clang-tidy. Requires 'bear'.
+compile-commands:
+	bear -- $(MAKE) rebuild
+	@echo "compile_commands.json generated"
 
 check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs
 	./$(TARGET) --help >/dev/null
@@ -102,7 +111,7 @@ check-signals: $(TARGET)
 	sh tests/check-signals.sh
 
 test-unit:
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c -o build-unit-tests $(LDLIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c src/util.c -o build-unit-tests $(LDLIBS)
 	./build-unit-tests
 	rm -f build-unit-tests
 
@@ -188,6 +197,8 @@ help:
 	@echo "Targets:"
 	@echo "  all                  Build $(TARGET)"
 	@echo "  rebuild              Clean and build"
+	@echo "  strict               Rebuild with extra warnings as errors (-Wconversion etc.)"
+	@echo "  compile-commands     Generate compile_commands.json via 'bear' (clangd/clang-tidy)"
 	@echo "  check                Run unit tests, version/schema checks and a CLI self-check"
 	@echo "  test-unit            Run pure helper unit tests"
 	@echo "  check-versions       Fail if any versioned artifact drifts from VERSION"

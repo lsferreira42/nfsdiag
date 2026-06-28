@@ -206,7 +206,115 @@ static void test_event_metadata(void) {
               "remediation: general empty");
 }
 
+static void test_service_missing_severity(void) {
+    expect_ok(service_missing_is_warning(PROFILE_NFSV4_ONLY) == 0,
+              "severity: v4-only missing legacy svc is info");
+    expect_ok(service_missing_is_warning(PROFILE_NFSV3_ONLY) == 1,
+              "severity: v3 missing svc is warn");
+    expect_ok(service_missing_is_warning(PROFILE_UNKNOWN) == 1,
+              "severity: unknown profile stays conservative (warn)");
+}
+
+static void test_parse_bounded_int(void) {
+    int out = -1;
+    expect_ok(parse_bounded_int("5", 1, 3600, &out) == 0 && out == 5,
+              "bounded: in range");
+    expect_ok(parse_bounded_int("0", 1, 3600, &out) != 0, "bounded: below lo");
+    expect_ok(parse_bounded_int("3601", 1, 3600, &out) != 0, "bounded: above hi");
+    expect_ok(parse_bounded_int("-1", 0, 10, &out) != 0, "bounded: reject negative");
+    expect_ok(parse_bounded_int("7x", 0, 10, &out) != 0, "bounded: reject garbage");
+}
+
+static void test_fopen_regular_ro(void) {
+    char tmpl[] = "/tmp/nfsdiag-ut-XXXXXX";
+    int fd = mkstemp(tmpl);
+    expect_ok(fd >= 0, "fopen_ro: created temp regular file");
+    if (fd >= 0) { (void)write(fd, "hi\n", 3); close(fd); }
+    FILE *f = fopen_regular_ro(tmpl);
+    expect_ok(f != NULL, "fopen_ro: opens a regular file");
+    if (f) fclose(f);
+
+    expect_ok(fopen_regular_ro("/tmp/nfsdiag-ut-does-not-exist-zzz") == NULL,
+              "fopen_ro: missing file -> NULL");
+    expect_ok(fopen_regular_ro("/tmp") == NULL, "fopen_ro: directory rejected");
+    if (fd >= 0) unlink(tmpl);
+}
+
+static void test_mountinfo_unescape(void) {
+    char out[64];
+    mountinfo_unescape(out, sizeof(out), "/mnt/no-escape");
+    expect_ok(strcmp(out, "/mnt/no-escape") == 0, "unescape: plain unchanged");
+
+    mountinfo_unescape(out, sizeof(out), "/mnt/with\\040space");
+    expect_ok(strcmp(out, "/mnt/with space") == 0, "unescape: \\040 -> space");
+
+    mountinfo_unescape(out, sizeof(out), "/a\\011b\\134c");
+    expect_ok(strcmp(out, "/a\tb\\c") == 0, "unescape: tab and backslash");
+}
+
+static void test_csv_append_missing(void) {
+    char out[128];
+    snprintf(out, sizeof(out), "vers=4");
+    csv_append_missing(out, sizeof(out), "nosuid,nodev,noexec", "vers=4");
+    expect_ok(strcmp(out, "vers=4,nosuid,nodev,noexec") == 0,
+              "csv: appends all when none present");
+
+    snprintf(out, sizeof(out), "vers=4");
+    csv_append_missing(out, sizeof(out), "nosuid,nodev,noexec", "vers=4,nosuid");
+    expect_ok(strcmp(out, "vers=4,nodev,noexec") == 0,
+              "csv: skips token already in existing");
+}
+
+static void test_http_request_is_get(void) {
+    char path[64];
+    const char *g = "GET /metrics HTTP/1.1\r\nHost: x\r\n\r\n";
+    expect_ok(http_request_is_get(g, strlen(g), path, sizeof(path)) == 1 &&
+              strcmp(path, "/metrics") == 0, "http: GET /metrics parsed");
+
+    const char *p = "POST /metrics HTTP/1.1\r\n\r\n";
+    expect_ok(http_request_is_get(p, strlen(p), path, sizeof(path)) == 0,
+              "http: POST rejected");
+
+    const char *junk = "garbage";
+    expect_ok(http_request_is_get(junk, strlen(junk), path, sizeof(path)) == 0,
+              "http: malformed rejected");
+
+    const char *root = "GET / HTTP/1.0\r\n\r\n";
+    expect_ok(http_request_is_get(root, strlen(root), path, sizeof(path)) == 1 &&
+              strcmp(path, "/") == 0, "http: GET / parsed");
+}
+
+static void test_avg_per_op_ms(void) {
+    expect_ok(avg_per_op_ms(0, 0) == 0.0, "rtt: zero ops -> 0");
+    expect_ok(avg_per_op_ms(1000, 10) == 100.0, "rtt: 1000ms/10ops = 100ms");
+    expect_ok(avg_per_op_ms(5, 0) == 0.0, "rtt: ops=0 never divides");
+}
+
+static void test_utf8_truncate(void) {
+    char out[64];
+    utf8_truncate(out, sizeof(out), "/short", 32);
+    expect_ok(strcmp(out, "/short") == 0, "utf8: short path unchanged");
+
+    utf8_truncate(out, sizeof(out), "/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 32);
+    expect_ok(strlen(out) == 32 && strcmp(out + 29, "...") == 0,
+              "utf8: ascii truncates to 32 with ellipsis");
+
+    const char *cjk = "/\xe4\xb8\xad\xe6\x96\x87" /* CJK */
+                      "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    utf8_truncate(out, sizeof(out), cjk, 32);
+    expect_ok(strlen(out) <= 32 && strcmp(out + strlen(out) - 3, "...") == 0,
+              "utf8: cjk truncation keeps ellipsis and bounded length");
+}
+
 int main(void) {
+    test_avg_per_op_ms();
+    test_utf8_truncate();
+    test_http_request_is_get();
+    test_service_missing_severity();
+    test_parse_bounded_int();
+    test_fopen_regular_ro();
+    test_mountinfo_unescape();
+    test_csv_append_missing();
     test_parse_ulong_arg();
     test_parse_id_arg();
     test_redact_argv();

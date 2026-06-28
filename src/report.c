@@ -14,9 +14,30 @@ int    summary_warn  = 0;
 int    summary_fail  = 0;
 int    saved_stdout_fd = -1;
 int    current_export_idx = -1;
-struct export_report export_reports[MAX_EXPORT_REPORTS];
+struct export_report *export_reports = NULL;
 size_t export_report_count = 0;
+size_t export_report_cap = 0;
+
+/* Return a zeroed slot at idx, growing the heap array on demand up to
+ * MAX_EXPORT_REPORTS, or NULL past the cap / on OOM. Callers must not hold a
+ * returned pointer across another export_report_at() call (realloc may move). */
+struct export_report *export_report_at(size_t idx) {
+    if (idx >= MAX_EXPORT_REPORTS) return NULL;
+    if (idx >= export_report_cap) {
+        size_t ncap = export_report_cap ? export_report_cap : 8;
+        while (ncap <= idx) ncap *= 2;
+        if (ncap > MAX_EXPORT_REPORTS) ncap = MAX_EXPORT_REPORTS;
+        struct export_report *n = realloc(export_reports, ncap * sizeof(*n));
+        if (!n) return NULL;
+        memset(n + export_report_cap, 0,
+               (ncap - export_report_cap) * sizeof(*n));
+        export_reports = n;
+        export_report_cap = ncap;
+    }
+    return &export_reports[idx];
+}
 static time_t diagnostic_start = 0;
+static int    colors_cached = -1;  /* -1 = unknown; recomputed per diagnostic run */
 
 static void json_escape(FILE *f, const char *s);
 
@@ -33,13 +54,15 @@ void reset_diagnostic_state(void) {
         free(recommendations[i]);
     recommendation_count = 0;
 
-    memset(export_reports, 0, sizeof(export_reports));
+    if (export_reports)
+        memset(export_reports, 0, export_report_cap * sizeof(*export_reports));
     export_report_count = 0;
     summary_ok   = 0;
     summary_warn = 0;
     summary_fail = 0;
     current_export_idx = -1;
     diagnostic_start = time(NULL);
+    colors_cached = -1;  /* stdout may have been redirected/restored */
 
     /* Restore stdout if it was redirected */
     if (saved_stdout_fd >= 0) {
@@ -74,41 +97,28 @@ void add_event(const char *level, const char *message) {
     events[event_count].export_idx = current_export_idx;
     event_count++;
 
-    /* Streaming NDJSON: emit event immediately */
+    /* Streaming NDJSON: emit the event immediately to the real stdout fd.
+     * Render into a memstream then write once, avoiding a dup/fdopen/fclose per
+     * event, and reuse json_escape for every field so escaping is consistent. */
     if (opt.output_fmt == OUTPUT_FMT_NDJSON) {
-        FILE *out = (saved_stdout_fd >= 0) ? NULL : stdout;
-        int tmpfd = -1;
-        if (!out && saved_stdout_fd >= 0) {
-            tmpfd = dup(saved_stdout_fd);
-            if (tmpfd >= 0) out = fdopen(tmpfd, "w");
-        }
-        if (out) {
-            fprintf(out, "{\"check_id\":\"");
-            json_escape(out, events[event_count - 1].check_id);
-            fprintf(out, "\",\"level\":\"");
-            for (const char *s = lev; *s; s++) {
-                unsigned char c = (unsigned char)*s;
-                if (c == '"' || c == '\\') fprintf(out, "\\%c", c);
-                else if (c < 32) fprintf(out, "\\u%04x", c);
-                else fputc(c, out);
-            }
-            fprintf(out, "\",\"category\":\"");
-            json_escape(out, events[event_count - 1].category);
-            fprintf(out, "\",\"message\":\"");
-            for (const char *s = msg; *s; s++) {
-                unsigned char c = (unsigned char)*s;
-                if (c == '"' || c == '\\') fprintf(out, "\\%c", c);
-                else if (c == '\n') fputs("\\n", out);
-                else if (c == '\r') fputs("\\r", out);
-                else if (c == '\t') fputs("\\t", out);
-                else if (c < 32) fprintf(out, "\\u%04x", c);
-                else fputc(c, out);
-            }
-            fprintf(out, "\",\"remediation\":\"");
-            json_escape(out, events[event_count - 1].remediation);
-            fprintf(out, "\",\"export_idx\":%d}\n", current_export_idx);
-            fflush(out);
-            if (tmpfd >= 0) fclose(out);
+        int ofd = (saved_stdout_fd >= 0) ? saved_stdout_fd : STDOUT_FILENO;
+        char *buf = NULL;
+        size_t sz = 0;
+        FILE *m = open_memstream(&buf, &sz);
+        if (m) {
+            fprintf(m, "{\"check_id\":\"");
+            json_escape(m, events[event_count - 1].check_id);
+            fprintf(m, "\",\"level\":\"");
+            json_escape(m, lev);
+            fprintf(m, "\",\"category\":\"");
+            json_escape(m, events[event_count - 1].category);
+            fprintf(m, "\",\"message\":\"");
+            json_escape(m, msg);
+            fprintf(m, "\",\"remediation\":\"");
+            json_escape(m, events[event_count - 1].remediation);
+            fprintf(m, "\",\"export_idx\":%d}\n", current_export_idx);
+            fclose(m);
+            if (buf) { (void)!write(ofd, buf, sz); free(buf); }
         }
     }
 }
@@ -149,10 +159,11 @@ static int important_ok_message(const char *msg) {
 }
 
 static int use_colors(void) {
-    /* No caching: stdout can be redirected to /dev/null and restored between
-     * runs (watch/hosts-file modes, --json=-), so a one-time answer goes
-     * stale. isatty() is one cheap syscall per printed line. */
-    return isatty(fileno(stdout)) ? 1 : 0;
+    /* Cached per run: stdout can be redirected/restored between runs
+     * (watch/hosts-file, --json=-), so reset_diagnostic_state() invalidates it. */
+    if (colors_cached < 0)
+        colors_cached = isatty(fileno(stdout)) ? 1 : 0;
+    return colors_cached;
 }
 
 #define ANSI_GREEN  "\033[32m"
@@ -679,12 +690,8 @@ void write_table_report(const char *host) {
             const char *status = export_status(i, r->tested);
 
             /* Truncate path to fit column width */
-            char path_trunc[33];
-            strncpy(path_trunc, r->path, 32);
-            path_trunc[32] = '\0';
-            if (strlen(r->path) > 32) {
-                path_trunc[29] = '.'; path_trunc[30] = '.'; path_trunc[31] = '.'; path_trunc[32] = '\0';
-            }
+            char path_trunc[64];
+            utf8_truncate(path_trunc, sizeof(path_trunc), r->path, 32);
 
             printf("%s", VL);
             printf(" %-*s %s", cw[0], path_trunc, VL);
@@ -874,6 +881,18 @@ void write_junit_report(const char *host) {
         }
     }
     fprintf(f, "</testsuite>\n");
+}
+
+void report_banner(const char *host) {
+    if (opt.quiet) return;
+    if (opt.output_fmt != OUTPUT_FMT_TEXT && opt.output_fmt != OUTPUT_FMT_TABLE) return;
+    printf("nfsdiag %s: %s\n", NFSDIAG_VERSION, host);
+}
+
+void report_summary_line(void) {
+    if (opt.quiet) return;
+    if (opt.output_fmt != OUTPUT_FMT_TEXT && opt.output_fmt != OUTPUT_FMT_TABLE) return;
+    printf("summary: ok=%d warn=%d fail=%d\n", summary_ok, summary_warn, summary_fail);
 }
 
 void print_interpretation(void) {
