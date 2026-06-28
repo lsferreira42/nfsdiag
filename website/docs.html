@@ -136,7 +136,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.11.0 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.12.0 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -838,7 +838,7 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.11.0: 192.168.0.21
+<pre><code class="block">nfsdiag 0.12.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -1080,7 +1080,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
         <p class="subsec">Manual compile</p>
 <pre><code class="block">gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
     src/main.c src/mount.c src/network.c src/report.c \
-    src/rpc.c src/stats.c src/tests.c src/validation.c \
+    src/rpc.c src/stats.c src/tests.c src/validation.c src/util.c \
     -ltirpc -o nfsdiag</code></pre>
       </section>
 
@@ -1302,7 +1302,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.11.0"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.12.0"</td></tr>
             <tr><td class="flag">MAX_XDR_EXPORT_NODES</td><td colspan="3">2048</td></tr>
             <tr><td class="flag">MAX_XDR_GROUP_NODES</td><td colspan="3">8192</td></tr>
             <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
@@ -1406,6 +1406,22 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </h2>
+
+        <p class="subsec">v0.12.0</p>
+        <p class="lede">
+          Correctness, hardening, and performance pass: accurate latency
+          reporting, a safer embedded exporter, symlink-resistant file reads,
+          and lower memory use.
+        </p>
+        <ul class="fixtures">
+          <li>mountstats per-op latency is now reported in milliseconds (was ~1000x too low); TCP connect latency excludes DNS and the path-MTU probe reuses the connection</li>
+          <li>Embedded exporter (<code class="inline">--listen</code>) adds a per-connection timeout so a silent client can't wedge it, serves metrics only on <code class="inline">GET /metrics</code> (and <code class="inline">/</code>), and returns <code class="inline">404</code>/<code class="inline">405</code> otherwise</li>
+          <li><code class="inline">--profile</code> now sets defaults only — an explicit flag always wins regardless of order; default hardening options are no longer duplicated when passed via <code class="inline">-o</code></li>
+          <li>Report/baseline reads use <code class="inline">O_NOFOLLOW</code> + regular-file checks; reused mountpoints are validated; write probes are skipped when no secure entropy source is available</li>
+          <li>Table output truncates export paths on UTF-8 boundaries; <code class="inline">mountinfo</code> octal escapes are decoded before matching</li>
+          <li>NDJSON streams through one descriptor, per-export storage is allocated on demand (~2.8&nbsp;MB less memory), and <code class="inline">/proc/self/mountstats</code> is read once per export</li>
+          <li>New <code class="inline">make strict</code> and <code class="inline">make compile-commands</code> developer targets</li>
+        </ul>
 
         <p class="subsec">v0.11.0</p>
         <p class="lede">
@@ -1633,7 +1649,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.11.0</strong></span>
+      <span>nfsdiag <strong>v0.12.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

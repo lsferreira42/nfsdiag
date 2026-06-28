@@ -1,4 +1,4 @@
-.TH NFSDIAG 8 "2026-06-22" "nfsdiag 0.11.0" "System Administration"
+.TH NFSDIAG 8 "2026-06-28" "nfsdiag 0.12.0" "System Administration"
 .SH NAME
 nfsdiag \- NFS server diagnostic tool
 .SH SYNOPSIS
@@ -191,7 +191,8 @@ Serve Prometheus metrics over HTTP. Binds to \fB127.0.0.1\fR unless \fIADDR\fR
 is given (the exporter has no authentication, so exposing it is an explicit
 decision; IPv6 literals need brackets: \fB[::1]:9100\fR). Diagnostics re-run
 every \fB\-\-watch\fR seconds (default 60); the latest snapshot is served
-between runs.
+between runs. Metrics are returned for \fBGET /metrics\fR (and \fB/\fR); other
+paths return \fB404\fR and non-GET methods return \fB405\fR.
 .TP
 .B \-\-keep\-temp
 Do not delete the temporary mount workspace after tests complete.

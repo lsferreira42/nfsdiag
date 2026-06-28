@@ -1,9 +1,9 @@
 class Nfsdiag < Formula
   desc "Client-side NFS diagnostic tool"
   homepage "https://www.nfsdiag.org"
-  url "https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v0.11.0.tar.gz"
+  url "https://github.com/lsferreira42/nfsdiag/archive/refs/tags/v0.12.0.tar.gz"
   sha256 "2bf2ecc333a47c7091374f75c2a202f4aa0f7191b3953bde26a6425b4a8dfeff"
-  version "0.11.0"
+  version "0.12.0"
   license "MIT"
 
   # nfsdiag parses /proc and drives mount.nfs, and libtirpc is Linux-only, so

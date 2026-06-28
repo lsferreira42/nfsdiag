@@ -97,6 +97,8 @@ sudo dnf install -y gcc make pkgconf-pkg-config libtirpc-devel nfs-utils
 ```sh
 make                    # build
 make check              # unit tests plus CLI self-check
+make strict             # build with extra warnings as errors (-Wconversion etc.)
+make compile-commands   # generate compile_commands.json (needs 'bear')
 make sbom               # minimal SPDX-style SBOM in build/
 sudo make install       # install binary, man page and shell completions to /usr/local
 ```
@@ -110,7 +112,7 @@ Manual compile:
 ```sh
 gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
     src/main.c src/mount.c src/network.c src/report.c \
-    src/rpc.c src/stats.c src/tests.c src/validation.c \
+    src/rpc.c src/stats.c src/tests.c src/validation.c src/util.c \
     -ltirpc -o nfsdiag
 ```
 

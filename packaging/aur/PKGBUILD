@@ -1,5 +1,5 @@
 pkgname=nfsdiag
-pkgver=0.11.0
+pkgver=0.12.0
 pkgrel=1
 pkgdesc='Client-side NFS diagnostic tool'
 arch=('x86_64' 'aarch64')

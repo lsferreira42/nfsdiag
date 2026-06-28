@@ -8,6 +8,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-28
+
+### Fixed
+- mountstats per-operation latency is now reported in milliseconds; it was
+  divided by 1000 and shown roughly 1000x too low.
+- TCP connect-latency samples now exclude name resolution (DNS is resolved once
+  up front), and the path-MTU probe reuses an existing connection instead of
+  opening another.
+- The `--command-timeout` note is no longer truncated away when a command fills
+  the capture buffer; space for the message is always reserved.
+- The table renderer truncates long export paths on UTF-8 character boundaries,
+  so multibyte names no longer emit a broken sequence to the terminal.
+- `/proc/self/mountinfo` octal escapes (`\040`, `\011`, ...) are decoded before
+  matching the mountpoint, so workspaces under a `TMPDIR` with spaces match.
+- Default hardening options (`nosuid`,`nodev`,`noexec`) are no longer duplicated
+  when the user already passed one via `-o`.
+- `--profile` now applies as defaults only: an explicit flag overrides the
+  profile regardless of where it appears on the command line.
+- Identity simulation prints a clear "supplemental groups require root" message
+  instead of a generic switch failure.
+- Embedded exporter (`--listen`): each connection now has a recv/send timeout so
+  a silent client cannot wedge the accept loop; only `GET /metrics` (and `/`)
+  return metrics, other paths get `404` and non-GET gets `405`.
+
+### Security
+- Report and baseline reads use `O_NOFOLLOW` and a regular-file check, refusing
+  to follow a symlink swapped in by another local user.
+- A reused mountpoint directory is validated to be a real directory we own (not
+  a symlink) before use.
+- Filesystem write probes are disabled when no secure entropy source is
+  available, since the anti-symlink random path component cannot be guaranteed.
+- The exporter uses `accept4(SOCK_CLOEXEC)` and `sigaction` for `SIGPIPE`.
+
+### Changed
+- RPC discovery now emits a single outcome event regardless of which mechanism
+  answered (portmapper, rpcbind v3/v4 DUMP, or direct probing), so the `ok`
+  count reflects the result rather than the path taken.
+- The CLI and config-file parsers share one strict bounded-integer parser for
+  the timeout options, so their accepted ranges can no longer drift apart.
+
+### Performance
+- NDJSON events stream through a single file descriptor instead of opening and
+  closing a `FILE` per event.
+- Per-export report storage is allocated on demand instead of a fixed array,
+  reducing the binary's resident memory by roughly 2.8 MB.
+- `/proc/self/mountstats` is read once per export, shared between the delegation
+  check and the op-stats parser.
+
+### Added
+- `make strict` (build with `-Werror -Wshadow -Wconversion -Wpointer-arith`)
+  and `make compile-commands` (generate `compile_commands.json` via `bear` for
+  clangd/clang-tidy).
+
+## [0.11.0] - 2026-06-22
+
 ### Fixed
 - Per-export filesystem diagnostics now run in a killable child process with a
   hard deadline in both sequential and parallel mode, so a wedged hard mount can
