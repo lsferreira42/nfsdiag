@@ -1,4 +1,4 @@
-FROM alpine:3.18 AS builder
+FROM alpine:3.24 AS builder
 RUN apk add --no-cache build-base pkgconf libtirpc-dev alpine-sdk sudo
 
 RUN adduser -G abuild -g "Alpine Package Builder" -s /bin/sh -D builder && \

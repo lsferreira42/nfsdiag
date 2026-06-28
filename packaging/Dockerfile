@@ -6,7 +6,7 @@
 #
 # Published image: ghcr.io/lsferreira42/nfsdiag
 
-FROM alpine:3.21 AS builder
+FROM alpine:3.24 AS builder
 
 RUN apk add --no-cache gcc musl-dev make pkgconf libtirpc-dev
 
@@ -14,7 +14,7 @@ WORKDIR /src
 COPY . .
 RUN make "CFLAGS=-O2 -Wall -Wextra -Werror" rebuild
 
-FROM alpine:3.21
+FROM alpine:3.24
 
 LABEL org.opencontainers.image.title="nfsdiag" \
       org.opencontainers.image.description="Client-side NFS diagnostic tool" \
