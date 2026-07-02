@@ -19,7 +19,7 @@ count_workspaces() { find "$TMP" -maxdepth 1 -name 'nfsdiag-*' -type d 2>/dev/nu
 # seconds of the signal, not hang.
 test_signal() {
     sig=$1
-    TMPDIR="$TMP" "$BIN" --no-mount --watch 1 --quiet --json=/dev/null 127.0.0.1 \
+    TMPDIR="$TMP" "$BIN" client --no-mount --watch 1 --quiet --json=/dev/null 127.0.0.1 \
         >/dev/null 2>&1 &
     pid=$!
     sleep 2
@@ -42,7 +42,7 @@ test_signal INT
 test_signal TERM
 
 # A plain --no-mount run must not leave a temporary workspace behind.
-TMPDIR="$TMP" "$BIN" --no-mount --quiet --json=/dev/null 127.0.0.1 >/dev/null 2>&1 || true
+TMPDIR="$TMP" "$BIN" client --no-mount --quiet --json=/dev/null 127.0.0.1 >/dev/null 2>&1 || true
 left=$(count_workspaces)
 [ "$left" -eq 0 ] || note "$left nfsdiag temp workspace(s) left in TMPDIR after a clean run"
 

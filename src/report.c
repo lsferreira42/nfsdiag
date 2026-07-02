@@ -357,6 +357,7 @@ static void json_emit(FILE *f, const char *host) {
     fprintf(f, "{\n");
     fprintf(f, "  \"schema_version\": \"2.0\",\n");
     fprintf(f, "  \"tool\": \"nfsdiag\",\n");
+    fprintf(f, "  \"mode\": \"%s\",\n", nfsdiag_mode);
     fprintf(f, "  \"version\": \"" NFSDIAG_VERSION "\",\n");
     fprintf(f, "  \"host\": \""); json_escape(f, host); fprintf(f, "\",\n");
     fprintf(f, "  \"timestamp\": %ld,\n", (long)now);

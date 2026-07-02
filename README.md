@@ -71,7 +71,7 @@ If the tool says no `ESTALE` happened, it only means the tool did not reproduce 
 No compilation needed:
 
 ```sh
-docker run --rm --privileged ghcr.io/lsferreira42/nfsdiag 192.168.1.10
+docker run --rm --privileged ghcr.io/lsferreira42/nfsdiag client 192.168.1.10
 ```
 
 The image is published to `ghcr.io/lsferreira42/nfsdiag` as `:latest` and `:vX.Y.Z` on each release.
@@ -142,24 +142,41 @@ are attached to GitHub releases.
 ## Basic usage
 
 ```sh
-sudo ./nfsdiag 192.168.1.10          # full diagnostic
-./nfsdiag --verbose 192.168.1.10     # show all steps
-./nfsdiag --no-mount 192.168.1.10    # network/RPC only, no mounts
-sudo ./nfsdiag --export /data 192.168.1.10   # one export only
-sudo ./nfsdiag --read-only 192.168.1.10      # skip write/create tests
-sudo ./nfsdiag --dry-run 192.168.1.10        # print what would run, do nothing
-./nfsdiag --self-test                         # local dependency/helper checks
+sudo ./nfsdiag client 192.168.1.10          # full diagnostic
+./nfsdiag client --verbose 192.168.1.10     # show all steps
+./nfsdiag client --no-mount 192.168.1.10    # network/RPC only, no mounts
+sudo ./nfsdiag client --export /data 192.168.1.10   # one export only
+sudo ./nfsdiag client --read-only 192.168.1.10      # skip write/create tests
+sudo ./nfsdiag client --dry-run 192.168.1.10        # print what would run, do nothing
+./nfsdiag client --self-test                         # local dependency/helper checks
 ```
 
 Profiles provide safer presets:
 
 ```sh
-sudo ./nfsdiag --profile quick 192.168.1.10
-sudo ./nfsdiag --profile safe 192.168.1.10
-sudo ./nfsdiag --profile full 192.168.1.10
-sudo ./nfsdiag --profile performance 192.168.1.10
-sudo ./nfsdiag --profile security 192.168.1.10
+sudo ./nfsdiag client --profile quick 192.168.1.10
+sudo ./nfsdiag client --profile safe 192.168.1.10
+sudo ./nfsdiag client --profile full 192.168.1.10
+sudo ./nfsdiag client --profile performance 192.168.1.10
+sudo ./nfsdiag client --profile security 192.168.1.10
 ```
+
+---
+
+## Server-side diagnostics
+
+The `server` namespace runs on the NFS server itself and audits its
+configuration (the client namespace tests a server from the outside):
+
+```sh
+sudo ./nfsdiag server --exports-audit                     # audit /etc/exports
+./nfsdiag server --exports-audit --exports-file ./exports # audit a specific file
+```
+
+`--exports-audit` flags syntax errors, exports without a client list, and
+risky options such as `no_root_squash`, `insecure` and world-writable
+wildcards. More server-side checks are planned; see
+[features_server.md](features_server.md) for the roadmap.
 
 ---
 
@@ -169,17 +186,17 @@ Default output is tagged text (`[OK]`, `[WARN]`, `[FAIL]`, `[INFO]`).
 
 **Summary table** (box-drawing, per-export columns):
 ```sh
-sudo ./nfsdiag --output-format=table 192.168.1.10
+sudo ./nfsdiag client --output-format=table 192.168.1.10
 ```
 
 **Streaming NDJSON** (one JSON object per event — ideal for log pipelines):
 ```sh
-sudo ./nfsdiag --output-format=ndjson 192.168.1.10 | jq 'select(.level=="fail")'
+sudo ./nfsdiag client --output-format=ndjson 192.168.1.10 | jq 'select(.level=="fail")'
 ```
 
 **Prometheus / OpenMetrics** (emitted at end of run):
 ```sh
-sudo ./nfsdiag --output-format=prometheus 192.168.1.10
+sudo ./nfsdiag client --output-format=prometheus 192.168.1.10
 ```
 
 ---
@@ -188,22 +205,22 @@ sudo ./nfsdiag --output-format=prometheus 192.168.1.10
 
 JSON to stdout (diagnostic text suppressed):
 ```sh
-./nfsdiag --json 192.168.1.10
+./nfsdiag client --json 192.168.1.10
 ```
 
 JSON to file (diagnostic text still on stdout):
 ```sh
-./nfsdiag --json=report.json 192.168.1.10
+./nfsdiag client --json=report.json 192.168.1.10
 ```
 
 HTML report:
 ```sh
-./nfsdiag --html=report.html 192.168.1.10
+./nfsdiag client --html=report.html 192.168.1.10
 ```
 
 Suppress stdout when writing to file:
 ```sh
-./nfsdiag --quiet --json=report.json 192.168.1.10
+./nfsdiag client --quiet --json=report.json 192.168.1.10
 ```
 
 Reports include tool version, host, timestamp, system info, per-export results (NFS version, latency, throughput, ACLs), global events, and recommendations.
@@ -212,7 +229,7 @@ event `category`, stable `check_id`, `severity`, and remediation text.
 
 Evidence bundle:
 ```sh
-sudo ./nfsdiag --output-dir ./nfsdiag-report 192.168.1.10
+sudo ./nfsdiag client --output-dir ./nfsdiag-report 192.168.1.10
 ```
 
 This writes JSON, HTML, evidence text and `SHA256SUMS` for the generated files.
@@ -228,7 +245,7 @@ Compare two JSON reports:
 
 Re-run diagnostics every N seconds (Ctrl-C to stop):
 ```sh
-sudo ./nfsdiag --watch 60 192.168.1.10
+sudo ./nfsdiag client --watch 60 192.168.1.10
 ```
 
 The terminal is cleared between iterations. All pending mounts are cleaned up on SIGINT.
@@ -239,7 +256,7 @@ The terminal is cleared between iterations. All pending mounts are cleaned up on
 
 Run against a list of hosts:
 ```sh
-sudo ./nfsdiag --hosts-file /etc/nfs-servers.txt --json=audit.json
+sudo ./nfsdiag client --hosts-file /etc/nfs-servers.txt --json=audit.json
 ```
 
 File format: one host per line; lines starting with `#` are comments. Use `--delay-ms` to rate-limit between hosts.
@@ -250,7 +267,7 @@ File format: one host per line; lines starting with `#` are comments. Use `--del
 
 Execute a script whenever any test fails:
 ```sh
-sudo ./nfsdiag --on-fail-exec /usr/local/bin/alert.sh 192.168.1.10
+sudo ./nfsdiag client --on-fail-exec /usr/local/bin/alert.sh 192.168.1.10
 ```
 
 The script receives: `NFSDIAG_HOST`, `NFSDIAG_LEVEL`, `NFSDIAG_FAIL_COUNT`, `NFSDIAG_WARN_COUNT`. It is invoked through a resolved trusted path with a minimal environment, never via a shell.
@@ -261,7 +278,7 @@ The script receives: `NFSDIAG_HOST`, `NFSDIAG_LEVEL`, `NFSDIAG_FAIL_COUNT`, `NFS
 
 Persist options in a key=value file:
 ```sh
-sudo ./nfsdiag --config /etc/nfsdiag.conf 192.168.1.10
+sudo ./nfsdiag client --config /etc/nfsdiag.conf 192.168.1.10
 ```
 
 Example `nfsdiag.conf`:
@@ -279,9 +296,9 @@ CLI flags override config-file values.
 ## UID/GID and permission tests
 
 ```sh
-sudo ./nfsdiag --uid 1000 --gid 1000 192.168.1.10
-sudo ./nfsdiag --uid 1000 --gid 1000 --uid 65534 --gid 65534 192.168.1.10
-sudo ./nfsdiag --uid 1000 --gid 1000 --groups 10,20,30 192.168.1.10
+sudo ./nfsdiag client --uid 1000 --gid 1000 192.168.1.10
+sudo ./nfsdiag client --uid 1000 --gid 1000 --uid 65534 --gid 65534 192.168.1.10
+sudo ./nfsdiag client --uid 1000 --gid 1000 --groups 10,20,30 192.168.1.10
 ```
 
 ---
@@ -289,10 +306,10 @@ sudo ./nfsdiag --uid 1000 --gid 1000 --groups 10,20,30 192.168.1.10
 ## Performance and stale handle tests
 
 ```sh
-sudo ./nfsdiag --bench-bytes 167772160 192.168.1.10
-sudo ./nfsdiag --bench-iterations 500 192.168.1.10
-sudo ./nfsdiag --bench-type=fio 192.168.1.10       # requires fio installed
-sudo ./nfsdiag --stale-iterations 1000 192.168.1.10
+sudo ./nfsdiag client --bench-bytes 167772160 192.168.1.10
+sudo ./nfsdiag client --bench-iterations 500 192.168.1.10
+sudo ./nfsdiag client --bench-type=fio 192.168.1.10       # requires fio installed
+sudo ./nfsdiag client --stale-iterations 1000 192.168.1.10
 ```
 
 ---
@@ -300,12 +317,12 @@ sudo ./nfsdiag --stale-iterations 1000 192.168.1.10
 ## Safety options
 
 ```sh
-sudo ./nfsdiag --command-timeout 15 192.168.1.10
-sudo ./nfsdiag --delay-ms 500 192.168.1.10
-sudo ./nfsdiag --mount-namespace 192.168.1.10      # explicit namespace
-sudo ./nfsdiag --no-mount-namespace 192.168.1.10   # opt out of automatic namespace
-sudo ./nfsdiag --dangerous-fs-tests 192.168.1.10   # enable symlink/hardlink/FIFO/device probes
-sudo ./nfsdiag --allow-risky-mount-options -o exec 192.168.1.10
+sudo ./nfsdiag client --command-timeout 15 192.168.1.10
+sudo ./nfsdiag client --delay-ms 500 192.168.1.10
+sudo ./nfsdiag client --mount-namespace 192.168.1.10      # explicit namespace
+sudo ./nfsdiag client --no-mount-namespace 192.168.1.10   # opt out of automatic namespace
+sudo ./nfsdiag client --dangerous-fs-tests 192.168.1.10   # enable symlink/hardlink/FIFO/device probes
+sudo ./nfsdiag client --allow-risky-mount-options -o exec 192.168.1.10
 ```
 
 ---
@@ -313,10 +330,10 @@ sudo ./nfsdiag --allow-risky-mount-options -o exec 192.168.1.10
 ## Network/protocol options
 
 ```sh
-./nfsdiag --no-mount --udp 192.168.1.10
-./nfsdiag --ipv4-only --no-mount 192.168.1.10
-./nfsdiag --ipv6-only --no-mount nfs-server.example.com
-sudo ./nfsdiag --no-nfs4-discovery 192.168.1.10
+./nfsdiag client --no-mount --udp 192.168.1.10
+./nfsdiag client --ipv4-only --no-mount 192.168.1.10
+./nfsdiag client --ipv6-only --no-mount nfs-server.example.com
+sudo ./nfsdiag client --no-nfs4-discovery 192.168.1.10
 ```
 
 ---
@@ -345,8 +362,24 @@ man docs/nfsdiag.8           # view locally
 ## Command line reference
 
 ```text
-Usage: nfsdiag [OPTIONS] <server-ip-or-hostname>
-       nfsdiag diff <before.json> <after.json>   Compare two JSON reports
+Usage: nfsdiag <command> [options]
+
+Commands:
+  client [OPTIONS] <host>          Diagnose an NFS server from the client side
+  server [OPTIONS]                 Diagnose the local NFS server
+  diff <before.json> <after.json>  Compare two JSON reports
+  version                          Print version and exit
+  help                             Show this help
+```
+
+Deprecated: `nfsdiag [OPTIONS] <host>` (without a command) still runs the
+client diagnostics as an alias for `nfsdiag client`, printing a warning on
+stderr. The alias will be removed in 1.0.
+
+### `nfsdiag client`
+
+```text
+Usage: nfsdiag client [OPTIONS] <server-ip-or-hostname>
 
 Diagnostic options:
   -e, --export PATH          Test only this export path (repeatable, up to 64)
@@ -408,6 +441,28 @@ Exit codes: 0=pass  1=warn/fail  2=usage/runtime error
 
 Stdout suppression: active only when --json=- or --html=- (report to stdout).
   Use --quiet to suppress stdout when writing a report to a file.
+```
+
+### `nfsdiag server`
+
+```text
+Usage: nfsdiag server [OPTIONS]
+
+Runs diagnostics on the local NFS server. At least one check is required.
+
+Checks:
+      --exports-audit        Audit /etc/exports and the live export table
+
+Check options:
+      --exports-file FILE    Exports file to audit. Default: /etc/exports
+
+Output options:
+  -v, --verbose              Show all diagnostic steps
+  -q, --quiet                Suppress human stdout
+  -V, --version              Print version and exit
+  -h, --help                 Show this help
+
+Exit codes: 0=pass  1=warn/fail  2=usage/runtime error
 ```
 
 ---

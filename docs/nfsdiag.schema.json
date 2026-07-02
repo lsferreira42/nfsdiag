@@ -22,6 +22,7 @@
   "properties": {
     "schema_version": { "const": "2.0" },
     "tool": { "const": "nfsdiag" },
+    "mode": { "type": "string", "enum": ["client", "server"] },
     "version": { "type": "string" },
     "host": { "type": "string" },
     "timestamp": { "type": "integer" },

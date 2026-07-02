@@ -114,7 +114,7 @@ docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' nfs-
 Run the tool:
 
 ```sh
-sudo ./nfsdiag --export /export <container-ip>
+sudo ./nfsdiag client --export /export <container-ip>
 ```
 
 Stop the container:

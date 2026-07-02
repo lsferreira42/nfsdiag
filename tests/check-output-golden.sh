@@ -24,7 +24,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 # nfsdiag exits 1 when the run has warnings/failures (expected for localhost).
-run() { "$BIN" --no-mount --timeout 2 "$@" "$HOST" 2>/dev/null || true; }
+run() { "$BIN" client --no-mount --timeout 2 "$@" "$HOST" 2>/dev/null || true; }
 run --json=-               >"$work/r.json"
 run --output-format ndjson >"$work/r.ndjson"
 run --output-format junit  >"$work/r.junit"
@@ -79,9 +79,15 @@ ids1=$(jq -S '[.events[].check_id]' "$work/r.json")
 ids2=$(jq -S '[.events[].check_id]' "$work/r2.json")
 [ "$ids1" = "$ids2" ] || note "check_ids are not stable across runs"
 
+# The deprecated no-subcommand alias produces the same stdout as `client`
+# (the deprecation warning goes to stderr and must not leak into stdout).
+"$BIN" --no-mount --timeout 2 --json=- "$HOST" 2>/dev/null >"$work/legacy.json" || true
+legacy_ids=$(jq -S '[.events[].check_id]' "$work/legacy.json")
+[ "$legacy_ids" = "$ids1" ] || note "legacy alias output differs from 'client' output"
+
 # Exit code follows the summary.
 rc=0
-"$BIN" --no-mount --timeout 2 "$HOST" >/dev/null 2>&1 || rc=$?
+"$BIN" client --no-mount --timeout 2 "$HOST" >/dev/null 2>&1 || rc=$?
 if [ "$warn" -gt 0 ] || [ "$failc" -gt 0 ]; then
     [ "$rc" = "1" ] || note "exit code $rc, expected 1 with warn/fail present"
 else

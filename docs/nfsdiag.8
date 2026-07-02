@@ -1,28 +1,48 @@
-.TH NFSDIAG 8 "2026-06-28" "nfsdiag 0.12.0" "System Administration"
+.TH NFSDIAG 8 "2026-07-02" "nfsdiag 0.13.0" "System Administration"
 .SH NAME
 nfsdiag \- NFS server diagnostic tool
 .SH SYNOPSIS
 .B nfsdiag
-[\fIOPTIONS\fR] \fIserver\fR
+\fBclient\fR [\fIOPTIONS\fR] \fIserver\fR
 .br
 .B nfsdiag
-\fB\-\-hosts\-file\fR \fIFILE\fR [\fIOPTIONS\fR]
+\fBclient\fR \fB\-\-hosts\-file\fR \fIFILE\fR [\fIOPTIONS\fR]
+.br
+.B nfsdiag
+\fBserver\fR [\fIOPTIONS\fR]
 .br
 .B nfsdiag
 \fBdiff\fR \fIbefore.json\fR \fIafter.json\fR
+.br
+.B nfsdiag
+[\fIOPTIONS\fR] \fIserver\fR (deprecated alias for \fBnfsdiag client\fR)
 .SH DESCRIPTION
 .B nfsdiag
-tests NFS servers from the client side, identifying network, RPC, protocol,
-permission, and performance issues across multiple exports.
+diagnoses NFS problems from both sides of the wire. The
+.B client
+subcommand tests NFS servers from the client side, identifying network, RPC,
+protocol, permission, and performance issues across multiple exports.
 It performs a layered diagnostic: network port reachability, RPC service
 discovery, export enumeration, mount cascade (NFSv4.2 \(-> 4.1 \(-> 4 \(-> 3),
 filesystem diagnostics (read/write, ACLs, locks, benchmarks, special files,
 xattrs, delegations), and finally RPC statistics comparison.
 .PP
+The
+.B server
+subcommand runs on the NFS server itself and audits its configuration.
+.PP
 Results are printed in real time to stdout and can also be emitted as JSON,
 HTML, NDJSON, Prometheus text, or an evidence bundle for archiving or ticket
 attachments.
-.SH OPTIONS
+.PP
+Calling
+.B nfsdiag
+without a subcommand still runs the client diagnostics as a deprecated alias
+for
+.BR "nfsdiag 0.13.0" ,
+printing a warning on stderr. The alias will be removed in 1.0.
+.SH "CLIENT OPTIONS"
+Options for \fBnfsdiag client\fR (and the deprecated no\-subcommand alias).
 .SS "Diagnostic options"
 .TP
 .BR \-e ", " \-\-export " " \fIPATH\fR
@@ -215,6 +235,35 @@ Validate local dependencies and pure helper checks, then exit.
 .TP
 .BR \-h ", " \-\-help
 Show usage summary and exit 0.
+.SH "SERVER OPTIONS"
+Options for \fBnfsdiag server\fR, which runs on the NFS server itself.
+At least one check must be selected.
+.SS "Checks"
+.TP
+.B \-\-exports\-audit
+Audit the exports file: flag syntax errors, exports without a client list,
+and risky options such as \fBno_root_squash\fR, \fBinsecure\fR, and
+read\-write exports to any host.
+.SS "Check options"
+.TP
+.BI \-\-exports\-file " FILE"
+Exports file to audit. Default: \fI/etc/exports\fR.
+.SS "Output options"
+.TP
+.BR \-v ", " \-\-verbose
+Show all diagnostic steps, including INFO-level events.
+.TP
+.BR \-q ", " \-\-quiet
+Suppress human stdout.
+.TP
+.BR \-V ", " \-\-version
+Print \fBnfsdiag \fIVERSION\fR and exit 0.
+.TP
+.BR \-h ", " \-\-help
+Show usage summary and exit 0.
+.PP
+The server\-side feature roadmap is tracked in \fIfeatures_server.md\fR in the
+source tree.
 .SH "EXIT CODES"
 .TP
 .B 0
@@ -270,43 +319,43 @@ NFSv4 delegation activity (DELEGRETURN operations) parsed after each mount.
 .SH EXAMPLES
 .TP
 Basic diagnostics against a single server:
-.B nfsdiag 192.168.1.100
+.B nfsdiag client 192.168.1.100
 .TP
 Test a specific export only:
-.B nfsdiag --export /data 192.168.1.100
+.B nfsdiag client --export /data 192.168.1.100
 .TP
 Simulate access as a non-root user:
-.B nfsdiag --uid 1000 --gid 1000 192.168.1.100
+.B nfsdiag client --uid 1000 --gid 1000 192.168.1.100
 .TP
 Generate JSON and HTML reports:
-.B nfsdiag --json=report.json --html=report.html 192.168.1.100
+.B nfsdiag client --json=report.json --html=report.html 192.168.1.100
 .TP
 Generate an evidence bundle:
-.B nfsdiag --output-dir ./nfsdiag-report 192.168.1.100
+.B nfsdiag client --output-dir ./nfsdiag-report 192.168.1.100
 .TP
 Use a safe read-only profile:
-.B nfsdiag --profile safe 192.168.1.100
+.B nfsdiag client --profile safe 192.168.1.100
 .TP
 Compare two JSON reports:
 .B nfsdiag diff before.json after.json
 .TP
 Display results as a summary table:
-.B nfsdiag --output-format=table 192.168.1.100
+.B nfsdiag client --output-format=table 192.168.1.100
 .TP
 Monitor an export every 60 seconds:
-.B nfsdiag --watch 60 192.168.1.100
+.B nfsdiag client --watch 60 192.168.1.100
 .TP
 Diagnose multiple servers from a file:
-.B nfsdiag --hosts-file /etc/nfs-servers.txt --json=audit.json
+.B nfsdiag client --hosts-file /etc/nfs-servers.txt --json=audit.json
 .TP
 Alert on failure via a custom script:
-.B nfsdiag --on-fail-exec /usr/local/bin/alert.sh 192.168.1.100
+.B nfsdiag client --on-fail-exec /usr/local/bin/alert.sh 192.168.1.100
 .TP
 Stream events as NDJSON for log pipelines:
-.B nfsdiag --output-format=ndjson 192.168.1.100 | jq 'select(.level=="fail")'
+.B nfsdiag client --output-format=ndjson 192.168.1.100 | jq 'select(.level=="fail")'
 .TP
 Expose metrics for Prometheus scraping:
-.B nfsdiag --output-format=prometheus 192.168.1.100
+.B nfsdiag client --output-format=prometheus 192.168.1.100
 .SH "SEVERITY"
 Each diagnostic emits one of four levels. \fBok\fR means the check completed and
 the result is expected. \fBinfo\fR is context that needs no action, including

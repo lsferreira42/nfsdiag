@@ -18,7 +18,7 @@ trap 'rm -f "$tmp"' EXIT
 
 # nfsdiag exits non-zero when the run contains warnings/failures, which is
 # expected for a localhost probe; we only care that valid JSON was produced.
-"$BIN" --no-mount --json=- 127.0.0.1 >"$tmp" 2>/dev/null || true
+"$BIN" client --no-mount --json=- 127.0.0.1 >"$tmp" 2>/dev/null || true
 if [ ! -s "$tmp" ]; then
     echo "[FAIL] $BIN produced no JSON output" >&2
     exit 1

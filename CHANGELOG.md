@@ -8,6 +8,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-07-02
+
+### Added
+- Subcommand namespaces: the CLI is now organized as `nfsdiag client`
+  (everything that existed before), `nfsdiag server` (diagnostics that run on
+  the NFS server itself), and `nfsdiag diff`. Top-level `help` and `version`
+  words work alongside `-h`/`-V`.
+- First server-side check: `nfsdiag server --exports-audit` parses the exports
+  file (`--exports-file FILE`, default `/etc/exports`) and flags syntax
+  errors, exports without a client list, and risky options such as
+  `no_root_squash`, `insecure`, and read-write exports to any host. The
+  server-side feature roadmap lives in `features_server.md`.
+- JSON reports carry a new optional `mode` field (`"client"` or `"server"`);
+  the schema accepts it without requiring it, so existing consumers keep
+  validating.
+- Shell completions (bash, zsh, fish) complete the subcommand first and then
+  the per-namespace flags.
+
+### Deprecated
+- Calling `nfsdiag [OPTIONS] <host>` without a subcommand. It still runs the
+  client diagnostics as an alias for `nfsdiag client` and prints a warning on
+  stderr (suppressed by `--quiet`); it will be removed in 1.0.
+
 ## [0.12.0] - 2026-06-28
 
 ### Fixed

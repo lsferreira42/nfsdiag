@@ -306,6 +306,54 @@ static void test_utf8_truncate(void) {
               "utf8: cjk truncation keeps ellipsis and bounded length");
 }
 
+static void test_exports_parse_line(void) {
+    struct export_line e;
+    char err[256];
+
+    expect_ok(exports_parse_line("# comment", 1, &e, err, sizeof(err)) == 0,
+              "exports: comment skipped");
+    expect_ok(exports_parse_line("   ", 2, &e, err, sizeof(err)) == 0,
+              "exports: blank skipped");
+
+    expect_ok(exports_parse_line("/srv/nfs 10.0.0.0/24(rw,sync)", 3, &e,
+                                 err, sizeof(err)) == 1 &&
+              strcmp(e.path, "/srv/nfs") == 0 && e.client_count == 1 &&
+              strcmp(e.clients[0], "10.0.0.0/24(rw,sync)") == 0,
+              "exports: simple line");
+
+    expect_ok(exports_parse_line("\"/srv/with space\" host1(ro) host2(rw)", 4,
+                                 &e, err, sizeof(err)) == 1 &&
+              strcmp(e.path, "/srv/with space") == 0 && e.client_count == 2,
+              "exports: quoted path, two clients");
+
+    expect_ok(exports_parse_line("/srv/nfs", 5, &e, err, sizeof(err)) == -1,
+              "exports: path without clients is an error");
+    expect_ok(exports_parse_line("relative/path host(rw)", 6, &e,
+                                 err, sizeof(err)) == -1,
+              "exports: relative path is an error");
+    expect_ok(exports_parse_line("\"/unterminated host(rw)", 7, &e,
+                                 err, sizeof(err)) == -1,
+              "exports: unterminated quote is an error");
+}
+
+static void test_exports_client_risk(void) {
+    char why[256];
+
+    expect_ok(exports_client_risk("10.0.0.0/24(rw,sync,root_squash)", why,
+                                  sizeof(why)) == 0,
+              "risk: sane entry is fine");
+    expect_ok(exports_client_risk("*(rw,no_root_squash)", why, sizeof(why)) == 1,
+              "risk: no_root_squash flagged");
+    expect_ok(exports_client_risk("*(rw)", why, sizeof(why)) == 1,
+              "risk: world-writable wildcard flagged");
+    expect_ok(exports_client_risk("host(insecure)", why, sizeof(why)) == 1,
+              "risk: insecure flagged");
+    expect_ok(exports_client_risk("host(ro)(rw)", why, sizeof(why)) == -1,
+              "risk: malformed token rejected");
+    expect_ok(exports_client_risk("host", why, sizeof(why)) == 0,
+              "risk: bare host (default options) accepted");
+}
+
 int main(void) {
     test_avg_per_op_ms();
     test_utf8_truncate();
@@ -323,6 +371,8 @@ int main(void) {
     test_validate_mount_options();
     test_parse_listen_arg();
     test_event_metadata();
+    test_exports_parse_line();
+    test_exports_client_risk();
 
     if (failures) {
         fprintf(stderr, "unit-tests failed: %d\n", failures);

@@ -136,7 +136,7 @@
       <section class="manpage">
         <h2>DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.12.0 — full reference. Written in C99
+          <strong>nfsdiag</strong> v0.13.0 — full reference. Written in C99
           against <code>libtirpc</code>. MIT license.
         </p>
 
@@ -169,7 +169,18 @@
           </svg>
         </h2>
 
-        <pre><code class="block">nfsdiag [OPTIONS] &lt;server-ip-or-hostname&gt;</code></pre>
+        <pre><code class="block">nfsdiag client [OPTIONS] &lt;server-ip-or-hostname&gt;
+nfsdiag server [OPTIONS]
+nfsdiag diff &lt;before.json&gt; &lt;after.json&gt;</code></pre>
+
+        <p>
+          Deprecated: <code class="inline">nfsdiag [OPTIONS] &lt;host&gt;</code>
+          (without a subcommand) still runs the client diagnostics as an alias
+          for <code class="inline">nfsdiag client</code>, printing a warning on
+          stderr. The alias will be removed in 1.0.
+        </p>
+
+        <p class="subsec">nfsdiag client</p>
 
         <!-- Diagnostic options -->
         <p class="subsec">Diagnostic options</p>
@@ -491,6 +502,50 @@
           removes human stdout in every case while still writing any requested
           report to its destination.
         </div>
+
+        <p class="subsec">nfsdiag server</p>
+        <p>
+          The <code class="inline">server</code> namespace runs on the NFS
+          server itself and audits its configuration. At least one check must
+          be selected. More server-side checks are planned; the roadmap lives
+          in <code class="inline">features_server.md</code> in the source tree.
+        </p>
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>flag</th>
+              <th>arg</th>
+              <th>default</th>
+              <th>description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">--exports-audit</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Audit the exports file: flag syntax errors, exports without a client list, and risky options such as <code class="inline">no_root_squash</code>, <code class="inline">insecure</code>, and read-write exports to any host.</td>
+            </tr>
+            <tr>
+              <td class="flag">--exports-file</td>
+              <td class="arg">FILE</td>
+              <td class="def">/etc/exports</td>
+              <td>Exports file to audit instead of <code class="inline">/etc/exports</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">-v, --verbose</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Show all diagnostic steps, including INFO-level events.</td>
+            </tr>
+            <tr>
+              <td class="flag">-q, --quiet</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Suppress human stdout.</td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <!-- ══════════════════════════════════════════════════════════════
@@ -689,7 +744,7 @@
         <div class="recipes">
           <div>
             <p class="recipe__desc">full diagnostic — needs root for mount</p>
-<pre><code class="block">sudo nfsdiag 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client 192.168.1.10</code></pre>
           </div>
 
           <div>
@@ -699,17 +754,17 @@
 
           <div>
             <p class="recipe__desc">network and RPC only — no mount, no root</p>
-<pre><code class="block">nfsdiag --no-mount 192.168.1.10</code></pre>
+<pre><code class="block">nfsdiag client --no-mount 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">test a single export path</p>
-<pre><code class="block">sudo nfsdiag --export /data 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --export /data 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">pass extra mount options</p>
-<pre><code class="block">sudo nfsdiag --mount-options soft,timeo=30,retrans=2 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --mount-options soft,timeo=30,retrans=2 192.168.1.10</code></pre>
           </div>
 
           <div>
@@ -730,37 +785,37 @@
 
           <div>
             <p class="recipe__desc">check Kerberos prerequisites</p>
-<pre><code class="block">sudo nfsdiag --krb5 kerberos-nfs.example.com</code></pre>
+<pre><code class="block">sudo nfsdiag client --krb5 kerberos-nfs.example.com</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">machine-readable report for CI / scripts</p>
-<pre><code class="block">nfsdiag --json=report.json 192.168.1.10</code></pre>
+<pre><code class="block">nfsdiag client --json=report.json 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">JSON to stdout — pipe to jq</p>
-<pre><code class="block">nfsdiag --json 192.168.1.10 | jq '.exports[].events'</code></pre>
+<pre><code class="block">nfsdiag client --json 192.168.1.10 | jq '.exports[].events'</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">shareable HTML for a support ticket</p>
-<pre><code class="block">sudo nfsdiag --html=report.html 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --html=report.html 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">quiet — report file only, no terminal output</p>
-<pre><code class="block">sudo nfsdiag --quiet --json=report.json 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --quiet --json=report.json 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">production audit — read-only, dry run, rate-limited</p>
-<pre><code class="block">nfsdiag --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
+<pre><code class="block">nfsdiag client --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">isolate in a private mount namespace</p>
-<pre><code class="block">sudo nfsdiag --mount-namespace 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --mount-namespace 192.168.1.10</code></pre>
           </div>
 
           <div>
@@ -773,17 +828,17 @@
 
           <div>
             <p class="recipe__desc">force IPv6, also probe UDP</p>
-<pre><code class="block">nfsdiag --ipv6-only --udp 2001:db8::1</code></pre>
+<pre><code class="block">nfsdiag client --ipv6-only --udp 2001:db8::1</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">keep temp workspace for post-mortem inspection</p>
-<pre><code class="block">sudo nfsdiag --keep-temp 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --keep-temp 192.168.1.10</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">continuous monitoring — re-run every 60 s</p>
-<pre><code class="block">sudo nfsdiag --watch 60 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --watch 60 192.168.1.10</code></pre>
           </div>
 
           <div>
@@ -796,13 +851,13 @@
 
           <div>
             <p class="recipe__desc">stream events — filter only failures with jq</p>
-<pre><code class="block">sudo nfsdiag --output-format=ndjson 192.168.1.10 \
+<pre><code class="block">sudo nfsdiag client --output-format=ndjson 192.168.1.10 \
   | jq 'select(.level=="fail")'</code></pre>
           </div>
 
           <div>
             <p class="recipe__desc">Prometheus probe output</p>
-<pre><code class="block">sudo nfsdiag --output-format=prometheus 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --output-format=prometheus 192.168.1.10</code></pre>
           </div>
 
           <div>
@@ -815,7 +870,7 @@
           <div>
             <p class="recipe__desc">run from a container — no install required</p>
 <pre><code class="block">docker run --rm --privileged \
-  ghcr.io/lsferreira42/nfsdiag 192.168.1.10</code></pre>
+  ghcr.io/lsferreira42/nfsdiag client 192.168.1.10</code></pre>
           </div>
         </div>
       </section>
@@ -838,7 +893,7 @@
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.12.0: 192.168.0.21
+<pre><code class="block">nfsdiag 0.13.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -849,7 +904,7 @@ summary: ok=12 warn=1 fail=0</code></pre>
           export with columns: path, NFS version, write MiB/s, read MiB/s,
           metadata p95 ms, lock status, overall status.
         </p>
-<pre><code class="block">sudo nfsdiag --output-format=table 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --output-format=table 192.168.1.10</code></pre>
 
         <p class="subsec">NDJSON (streaming)</p>
         <p class="lede">
@@ -859,7 +914,7 @@ summary: ok=12 warn=1 fail=0</code></pre>
           <code class="inline">check_id</code>, <code class="inline">category</code>,
           severity and remediation text.
         </p>
-<pre><code class="block">sudo nfsdiag --output-format=ndjson 192.168.1.10 \
+<pre><code class="block">sudo nfsdiag client --output-format=ndjson 192.168.1.10 \
   | jq 'select(.level=="fail")'</code></pre>
 
         <p class="subsec">Prometheus / OpenMetrics</p>
@@ -868,7 +923,7 @@ summary: ok=12 warn=1 fail=0</code></pre>
           metadata latency p95, lock result, delegation state, and per-check
           pass/fail gauge. Suitable for blackbox_exporter or batch-job scraping.
         </p>
-<pre><code class="block">sudo nfsdiag --output-format=prometheus 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --output-format=prometheus 192.168.1.10</code></pre>
 
         <p class="subsec">JSON</p>
         <p class="lede">
@@ -884,14 +939,14 @@ summary: ok=12 warn=1 fail=0</code></pre>
           a documented 1.x compatibility policy.
         </p>
 <pre><code class="block"><span class="code__d"># JSON to file — diagnostic text still on stdout</span>
-nfsdiag --json=report.json 192.168.1.10
+nfsdiag client --json=report.json 192.168.1.10
 
 <span class="code__d"># JSON to stdout — diagnostic text suppressed</span>
-nfsdiag --json 192.168.1.10
-nfsdiag --json=- 192.168.1.10
+nfsdiag client --json 192.168.1.10
+nfsdiag client --json=- 192.168.1.10
 
 <span class="code__d"># pipe to jq</span>
-nfsdiag --json 192.168.1.10 | jq '.exports[0].nfs_version'</code></pre>
+nfsdiag client --json 192.168.1.10 | jq '.exports[0].nfs_version'</code></pre>
 
         <p class="subsec">Evidence bundle</p>
         <p class="lede">
@@ -899,7 +954,7 @@ nfsdiag --json 192.168.1.10 | jq '.exports[0].nfs_version'</code></pre>
           text and SHA256 checksums in one directory. Two JSON reports can be
           compared with <code class="inline">nfsdiag diff</code>.
         </p>
-<pre><code class="block">sudo nfsdiag --output-dir ./nfsdiag-report 192.168.1.10
+<pre><code class="block">sudo nfsdiag client --output-dir ./nfsdiag-report 192.168.1.10
 nfsdiag diff before.json after.json</code></pre>
 
         <p class="subsec">HTML</p>
@@ -910,13 +965,13 @@ nfsdiag diff before.json after.json</code></pre>
           HTML-escaped.
         </p>
 <pre><code class="block"><span class="code__d"># HTML to file</span>
-sudo nfsdiag --html=report.html 192.168.1.10
+sudo nfsdiag client --html=report.html 192.168.1.10
 
 <span class="code__d"># HTML to stdout (suppresses diagnostic text)</span>
-sudo nfsdiag --html=- 192.168.1.10 &gt; report.html
+sudo nfsdiag client --html=- 192.168.1.10 &gt; report.html
 
 <span class="code__d"># quiet: HTML file only, no terminal output</span>
-sudo nfsdiag --quiet --html=report.html 192.168.1.10</code></pre>
+sudo nfsdiag client --quiet --html=report.html 192.168.1.10</code></pre>
       </section>
 
       <!-- ══════════════════════════════════════════════════════════════
@@ -1037,7 +1092,7 @@ make packages  <span class="code__d"># all three formats at once</span></code></
           <code class="inline">:vX.Y.Z</code>.
         </p>
 <pre><code class="block">docker run --rm --privileged \
-  ghcr.io/lsferreira42/nfsdiag 192.168.1.10</code></pre>
+  ghcr.io/lsferreira42/nfsdiag client 192.168.1.10</code></pre>
 
         <p class="subsec">Install options</p>
 <pre><code class="block">sudo make install                  <span class="code__d"># binary, man page and shell completions to /usr/local</span>
@@ -1302,7 +1357,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.12.0"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.13.0"</td></tr>
             <tr><td class="flag">MAX_XDR_EXPORT_NODES</td><td colspan="3">2048</td></tr>
             <tr><td class="flag">MAX_XDR_GROUP_NODES</td><td colspan="3">8192</td></tr>
             <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
@@ -1406,6 +1461,21 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </h2>
+
+        <p class="subsec">v0.13.0</p>
+        <p class="lede">
+          Subcommand namespaces and the first server-side check: the CLI splits
+          into <code class="inline">client</code> and
+          <code class="inline">server</code>, opening the road to full
+          server-side NFS diagnostics.
+        </p>
+        <ul class="fixtures">
+          <li>CLI reorganized as <code class="inline">nfsdiag client</code> (everything that existed before), <code class="inline">nfsdiag server</code> (runs on the NFS server itself), and <code class="inline">nfsdiag diff</code></li>
+          <li>New <code class="inline">server --exports-audit</code> (with <code class="inline">--exports-file</code>): flags exports syntax errors, missing client lists, and risky options such as <code class="inline">no_root_squash</code>, <code class="inline">insecure</code>, and world-writable wildcards</li>
+          <li>JSON reports carry an optional <code class="inline">mode</code> field (<code class="inline">client</code>/<code class="inline">server</code>); existing consumers keep validating</li>
+          <li>Shell completions complete the subcommand first, then per-namespace flags</li>
+          <li>Deprecated: calling <code class="inline">nfsdiag [OPTIONS] &lt;host&gt;</code> without a subcommand — still works as an alias for <code class="inline">client</code> with a warning on stderr; removal planned for 1.0</li>
+        </ul>
 
         <p class="subsec">v0.12.0</p>
         <p class="lede">
@@ -1649,7 +1719,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.12.0</strong></span>
+      <span>nfsdiag <strong>v0.13.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

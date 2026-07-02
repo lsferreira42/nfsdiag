@@ -2,9 +2,9 @@
 # zsh completion for nfsdiag
 
 _nfsdiag() {
-    local -a opts
+    local -a client_opts server_opts
 
-    opts=(
+    client_opts=(
         '*'{-e,--export}'[test only this export path (repeatable)]:export path:'
         '(-o --mount-options)'{-o,--mount-options}'[extra mount options]:mount options:'
         '--no-mount[run network/RPC checks only; skip all mounts]'
@@ -53,7 +53,49 @@ _nfsdiag() {
         ':server:_hosts'
     )
 
-    _arguments -s $opts
+    server_opts=(
+        '--exports-audit[audit /etc/exports and the live export table]'
+        '--exports-file[exports file to audit]:file:_files'
+        '(-v --verbose)'{-v,--verbose}'[show all diagnostic steps]'
+        '(-q --quiet)'{-q,--quiet}'[suppress stdout]'
+        '(-V --version)'{-V,--version}'[print version and exit]'
+        '(-h --help)'{-h,--help}'[show help]'
+    )
+
+    if (( CURRENT == 2 )); then
+        local -a commands
+        commands=(
+            'client:diagnose an NFS server from the client side'
+            'server:diagnose the local NFS server'
+            'diff:compare two JSON reports'
+            'help:show help'
+            'version:print version and exit'
+        )
+        _describe -t commands 'nfsdiag command' commands
+        # deprecated legacy alias: bare `nfsdiag [opts] <host>` still works
+        _arguments -s $client_opts
+        return
+    fi
+
+    case $words[2] in
+        client)
+            words=("${words[@]:1}")
+            (( CURRENT-- ))
+            _arguments -s $client_opts
+            ;;
+        server)
+            words=("${words[@]:1}")
+            (( CURRENT-- ))
+            _arguments -s $server_opts
+            ;;
+        diff)
+            _files -g '*.json'
+            ;;
+        *)
+            # deprecated legacy alias for `client`
+            _arguments -s $client_opts
+            ;;
+    esac
 }
 
 _nfsdiag "$@"

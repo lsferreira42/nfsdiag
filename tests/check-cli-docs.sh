@@ -1,14 +1,15 @@
 #!/bin/sh
-# Verify that every long option printed by `nfsdiag --help` is documented in
-# the README, the man page, the website CLI reference, and all three shell
-# completions. `--help` is the source of truth.
+# Verify that every long option printed by `nfsdiag client --help` and
+# `nfsdiag server --help` is documented in the README, the man page, the
+# website CLI reference, and all three shell completions. `--help` is the
+# source of truth.
 # Run from the repository root with a built ./nfsdiag: sh tests/check-cli-docs.sh
 set -eu
 
 NFS_DIAG=${NFS_DIAG:-./nfsdiag}
 fail=0
 
-opts=$("$NFS_DIAG" --help | grep -o -- '--[a-z0-9-]*' | sort -u)
+opts=$( { "$NFS_DIAG" client --help; "$NFS_DIAG" server --help; } | grep -o -- '--[a-z0-9-]*' | sort -u)
 [ -n "$opts" ] || { echo "[FAIL] could not extract options from --help"; exit 1; }
 
 check() {

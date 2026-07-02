@@ -49,11 +49,11 @@ run_nfsdiag() {
     ip=$2
     case "$fixture" in
         read-only-export|root-squash|permission-denied|empty-exports|mount-denied|acl-unsupported|stale-handle|slow-performance)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 "$ip" ;;
         identity-denied)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 "$ip" ;;
         *)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --no-mount --command-timeout 10 --timeout 3 "$ip" ;;
     esac
 }
 
@@ -64,11 +64,11 @@ run_nfsdiag_json() {
     ip=$2
     case "$fixture" in
         read-only-export|root-squash|permission-denied|empty-exports|mount-denied|acl-unsupported|stale-handle|slow-performance)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --json=- "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --json=- "$ip" ;;
         identity-denied)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 --json=- "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --export /export --command-timeout 10 --bench-bytes 1024 --bench-iterations 1 --stale-iterations 1 --uid 65534 --gid 65534 --json=- "$ip" ;;
         *)
-            timeout "$TEST_TIMEOUT" "$NFS_DIAG" --no-mount --command-timeout 10 --timeout 3 --json=- "$ip" ;;
+            timeout "$TEST_TIMEOUT" "$NFS_DIAG" client --no-mount --command-timeout 10 --timeout 3 --json=- "$ip" ;;
     esac
 }
 

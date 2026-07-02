@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.12.0"
+#define NFSDIAG_VERSION "0.13.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -266,6 +266,39 @@ extern struct export_report *export_reports;
 extern size_t              export_report_count;
 extern size_t              export_report_cap;
 struct export_report *export_report_at(size_t idx);
+
+/* ---- main.c dispatcher entry points ---- */
+
+extern const char *nfsdiag_mode;   /* "client" or "server", set by main() */
+int client_main(int argc, char **argv);
+int server_main(int argc, char **argv);
+int diff_reports(const char *a, const char *b);
+
+/* ---- server.c (`nfsdiag server` namespace) ---- */
+
+struct server_options {
+    int exports_audit;
+    const char *exports_file;
+    int verbose;
+    int quiet;
+};
+extern struct server_options server_opt;
+
+/* ---- server_exports.c (pure helpers for --exports-audit) ---- */
+
+struct export_line {
+    char path[512];
+    char clients[8][256];   /* "host(opt,opt)" tokens, already split      */
+    int  client_count;
+    int  lineno;
+};
+/* Parse one line of /etc/exports. Returns: 1 = parsed into *out,
+ * 0 = blank/comment (skip), -1 = syntax error (message in err). */
+int exports_parse_line(const char *line, int lineno, struct export_line *out,
+                       char *err, size_t errsz);
+/* Inspect one "host(options)" token. Returns 0 = fine, 1 = risky
+ * (human-readable reason in why), -1 = malformed token. */
+int exports_client_risk(const char *token, char *why, size_t whysz);
 
 /* ---- report.c ---- */
 

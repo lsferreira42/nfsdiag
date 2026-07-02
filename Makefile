@@ -68,7 +68,7 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=unmatchedSuppression \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
-.PHONY: all clean distclean rebuild strict compile-commands check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild strict compile-commands check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -89,14 +89,18 @@ compile-commands:
 	bear -- $(MAKE) rebuild
 	@echo "compile_commands.json generated"
 
-check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs
+check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands
 	./$(TARGET) --help >/dev/null
-	./$(TARGET) --self-test >/dev/null
+	./$(TARGET) client --self-test >/dev/null
 	@echo "self-check passed"
 
 # Fail if a --help option is undocumented in README/man/website/completions.
 check-cli-docs: $(TARGET)
 	sh tests/check-cli-docs.sh
+
+# Subcommand dispatch: client/server/diff/help/version + deprecated alias.
+check-subcommands: $(TARGET)
+	sh tests/check-subcommands.sh
 
 # Assert the four structured renderers agree on counters and are well-formed.
 check-output-golden: $(TARGET)
@@ -111,7 +115,7 @@ check-signals: $(TARGET)
 	sh tests/check-signals.sh
 
 test-unit:
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c src/util.c -o build-unit-tests $(LDLIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c src/util.c src/server_exports.c -o build-unit-tests $(LDLIBS)
 	./build-unit-tests
 	rm -f build-unit-tests
 
