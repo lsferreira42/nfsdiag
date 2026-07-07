@@ -1,4 +1,4 @@
-.TH NFSDIAG 8 "2026-07-02" "nfsdiag 0.13.0" "System Administration"
+.TH NFSDIAG 8 "2026-07-07" "nfsdiag 0.22.0" "System Administration"
 .SH NAME
 nfsdiag \- NFS server diagnostic tool
 .SH SYNOPSIS
@@ -39,7 +39,7 @@ Calling
 .B nfsdiag
 without a subcommand still runs the client diagnostics as a deprecated alias
 for
-.BR "nfsdiag 0.13.0" ,
+.BR "nfsdiag 0.22.0" ,
 printing a warning on stderr. The alias will be removed in 1.0.
 .SH "CLIENT OPTIONS"
 Options for \fBnfsdiag client\fR (and the deprecated no\-subcommand alias).
@@ -131,6 +131,12 @@ overrides the profile regardless of where it appears relative to
 .BI \-\-hosts\-file " FILE"
 Read one host per line from \fIFILE\fR and run diagnostics for each. Lines
 starting with \fB#\fR are comments.
+.TP
+.BI \-\-peer " HOST[:PORT]"
+Correlate with a peer \fBnfsdiag server \-\-listen\fR exporter (default port
+9100). The client samples the server's metrics before and after its run and
+prints a \fBpaired:\fR verdict locating the bottleneck (server, network, or
+client).
 .TP
 .BI \-\-watch " SEC"
 Re-run diagnostics every \fISEC\fR seconds until interrupted with Ctrl-C.
@@ -240,15 +246,159 @@ Options for \fBnfsdiag server\fR, which runs on the NFS server itself.
 At least one check must be selected.
 .SS "Checks"
 .TP
+.B \-\-all
+Run every server check.
+.TP
+.B \-\-daemons
+Check the kernel nfsd, \fBrpcbind\fR, \fBrpc.mountd\fR, \fBrpc.statd\fR,
+\fBrpc.idmapd\fR and \fBgssproxy\fR/\fBrpc.svcgssd\fR, plus the program
+registrations in the local rpcbind.
+.TP
 .B \-\-exports\-audit
 Audit the exports file: flag syntax errors, exports without a client list,
 and risky options such as \fBno_root_squash\fR, \fBinsecure\fR, and
 read\-write exports to any host.
+.TP
+.B \-\-ports\-firewall
+Check TCP listeners on ports 2049 and 111, report the dynamic
+mountd/statd/lockd ports, and run a best\-effort firewalld/nftables rule
+check.
+.TP
+.B \-\-storage\-health
+For each export: directory exists, space and inode usage (warning above 90%),
+and the filesystem type, warning about types that break NFS (tmpfs,
+overlayfs, NFS re\-export).
+.TP
+.B \-\-version\-matrix
+Report the NFS versions enabled in \fI/proc/fs/nfsd/versions\fR, the NFSv4
+lease and grace times, and the maximum block size.
+.TP
+.B \-\-sysctl\-advisor
+Detect nfsd thread starvation from the \fBth\fR histogram in
+\fI/proc/net/rpc/nfsd\fR and check network buffer tunables, with
+recommendations.
+.TP
+.B \-\-security\-audit
+Deep exports analysis beyond syntax: \fBsubtree_check\fR,
+\fBinsecure_locks\fR, \fBall_squash\fR without \fBanonuid\fR,
+\fBsec=sys\fR, duplicate paths, and nested exports without
+\fBcrossmnt\fR.
+.TP
+.B \-\-idmap\-check
+Validate \fI/etc/idmapd.conf\fR: the NFSv4 domain against the host's DNS
+domain (mismatches map users to nobody) and the Nobody\-User mapping.
+.TP
+.B \-\-krb5\-server
+Server\-side Kerberos validation: keytab presence and permissions,
+\fBnfs/\fR principal, default realm, gss daemons, and NTP
+synchronization.
+.TP
+.B \-\-acl\-check
+Verify POSIX ACL support on the filesystem under each export with a
+non\-destructive xattr probe.
+.TP
+.B \-\-squash\-check
+Mount each export from localhost, create a file as root and report the
+effective identity mapping. Intrusive (mounts and writes); not included in
+\fB\-\-all\fR; requires root.
+.TP
+.B \-\-rpc\-stats
+Analyze \fI/proc/net/rpc/nfsd\fR: reply\-cache hit rate, bad RPC calls (auth
+failures or malformed requests), and packet/byte traffic.
+.TP
+.B \-\-locks
+Summarize held locks by type from \fI/proc/locks\fR, the NFSv4 lease and grace
+times, and NLM/NSM (NFSv3 locking) registration.
+.TP
+.B \-\-clients
+Inventory connected NFSv4 clients from \fI/proc/fs/nfsd/clients/\fR \(em minor
+version and callback state \(em plus established TCP connections on 2049.
+.TP
+.B \-\-client\-states
+Count NFSv4 opens, locks, delegations and layouts held per client, flagging
+clients that leak file handles or hoard delegations.
+.TP
+.B \-\-latency\-profile
+eBPF latency histogram of nfsd read/write/commit operations. Needs a build
+configured with \fB./configure \-\-enable\-ebpf\fR and root (CAP_BPF). Samples
+for \fB\-\-duration\fR seconds. Not part of \fB\-\-all\fR.
+.TP
+.B \-\-per\-client\-trace
+eBPF per-client nfsd operation count and average latency, reading the client
+address from the RPC request. Same requirements as \fB\-\-latency\-profile\fR.
+.TP
+.B \-\-backend\-bench
+Write/read benchmark of the storage under each export, establishing the raw
+disk ceiling to separate a storage bottleneck from an NFS/network one.
+Intrusive; not part of \fB\-\-all\fR.
+.TP
+.B \-\-capture
+Capture NFS traffic on port 2049 with \fBtcpdump\fR (needs root) for
+\fB\-\-duration\fR seconds; if \fBtshark\fR is present, summarize it.
+.TP
+.BI \-\-duration " SEC"
+Sampling window for \fB\-\-latency\-profile\fR, \fB\-\-per\-client\-trace\fR and
+\fB\-\-capture\fR. Default: 10.
+.TP
+.B \-\-ha\-check
+Validate a high-availability setup: exports missing an explicit \fBfsid=\fR,
+whether \fI/var/lib/nfs\fR is on shared storage, NFSv4 grace/recovery, and
+pacemaker NFS resources. Opt-in; not part of \fB\-\-all\fR.
+.TP
+.B \-\-ganesha\-check
+Detect \fBnfs\-ganesha\fR (userland) versus the kernel \fBnfsd\fR, parse
+\fI/etc/ganesha/ganesha.conf\fR (EXPORT blocks and FSALs), and detect a
+container/Kubernetes environment.
+.TP
+.B \-\-log\-intel
+Scan the systemd journal (\fBjournalctl\fR) or \fI/var/log/messages\fR under
+\fB\-\-root\fR for known nfsd/mountd/statd/kernel problem signatures and report
+each match with a suggested fix.
+.TP
+.B \-\-rmtab\-audit
+Detect stale \fI/var/lib/nfs/rmtab\fR entries (count 0) and orphaned NSM
+(\fIsm/\fR) monitors that cause \fBsm\-notify\fR storms at boot.
+.TP
+.B \-\-memory\-pressure
+Assess memory pressure relevant to NFS: MemAvailable against the reply cache
+and dentry/inode caches, plus \fBvm.*\fR tunables.
 .SS "Check options"
 .TP
 .BI \-\-exports\-file " FILE"
 Exports file to audit. Default: \fI/etc/exports\fR.
+.TP
+.B \-\-audit\-trail
+With \fB\-\-output\-dir\fR, capture copies of the exports file,
+\fInfs.conf\fR, \fIidmapd.conf\fR and \fIkrb5.conf\fR plus a
+\fICONFIG.SHA256SUMS\fR manifest for incident evidence.
 .SS "Output options"
+.TP
+.BI \-\-root " DIR"
+Read \fI/proc\fR and \fI/etc\fR under \fIDIR\fR instead of the live system \(em
+for example an extracted sosreport. Checks that need the live system
+(rpcbind dump, firewall tools, statvfs) are skipped with an explanation.
+.TP
+.BI \-\-json[= PATH ]
+Emit a structured JSON report to \fIPATH\fR. Use \fB\-\fR or omit for stdout.
+.TP
+.BI \-\-html[= PATH ]
+Emit a self-contained HTML report to \fIPATH\fR. Use \fB\-\fR or omit for stdout.
+.TP
+.BI \-\-output\-format " FMT"
+Terminal output format: \fBtext\fR (default), \fBtable\fR, \fBndjson\fR,
+\fBprometheus\fR, \fBjunit\fR.
+.TP
+.BI \-\-output\-dir " DIR"
+Write a bundle containing JSON, HTML, evidence text, and SHA256 checksums.
+.TP
+.BI \-\-watch " SEC"
+Re-run the selected server checks every \fISEC\fR seconds until interrupted.
+.TP
+.BI \-\-listen " [ADDR:]PORT"
+Serve Prometheus server metrics (nfsd threads, DRC, RPC, clients, locks) over
+HTTP. Binds \fB127.0.0.1\fR unless \fIADDR\fR is given; refreshes every
+\fB\-\-watch\fR seconds (default 60). \fBnfsdiag server \-\-output\-format
+prometheus\fR prints the same gauges once to stdout.
 .TP
 .BR \-v ", " \-\-verbose
 Show all diagnostic steps, including INFO-level events.
@@ -261,9 +411,6 @@ Print \fBnfsdiag \fIVERSION\fR and exit 0.
 .TP
 .BR \-h ", " \-\-help
 Show usage summary and exit 0.
-.PP
-The server\-side feature roadmap is tracked in \fIfeatures_server.md\fR in the
-source tree.
 .SH "EXIT CODES"
 .TP
 .B 0

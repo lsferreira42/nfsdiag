@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>nfsdiag — full documentation</title>
+    <title>nfsdiag — client documentation</title>
     <meta
       name="description"
-      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+      content="Reference for nfsdiag client: testing NFS servers from the client side. CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -30,20 +30,20 @@
     <meta property="og:type" content="article" />
     <meta property="og:site_name" content="nfsdiag" />
     <meta property="og:locale" content="en_US" />
-    <meta property="og:title" content="nfsdiag — full documentation" />
+    <meta property="og:title" content="nfsdiag — client documentation" />
     <meta
       property="og:description"
-      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+      content="Reference for nfsdiag client: testing NFS servers from the client side. CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
     />
     <meta property="og:image" content="https://www.nfsdiag.org/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="nfsdiag — diagnose NFS servers from the client side" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="nfsdiag — full documentation" />
+    <meta name="twitter:title" content="nfsdiag — client documentation" />
     <meta
       name="twitter:description"
-      content="Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
+      content="Reference for nfsdiag client: testing NFS servers from the client side. CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog."
     />
     <meta name="twitter:image" content="https://www.nfsdiag.org/og-image.png" />
     <script type="application/ld+json">
@@ -53,8 +53,8 @@
         {
           "@type": "TechArticle",
           "@id": "https://www.nfsdiag.org/docs.html#article",
-          "headline": "nfsdiag — full documentation",
-          "description": "Full reference documentation for nfsdiag: CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog.",
+          "headline": "nfsdiag — client documentation",
+          "description": "Reference for nfsdiag client: testing NFS servers from the client side. CLI flags, checks, output formats, Docker fixtures, packaging, architecture, security, and changelog.",
           "url": "https://www.nfsdiag.org/docs.html",
           "inLanguage": "en",
           "dateModified": "2026-06-10",
@@ -112,6 +112,13 @@
           <a href="#packaging" class="nav__hide-sm">packaging</a>
           <a href="#changelog" class="nav__hide-sm">changelog</a>
           <a href="author.html" class="nav__hide-sm">author</a>
+          <details class="nav__drop">
+            <summary>docs: client</summary>
+            <div class="nav__drop-menu">
+              <a href="docs.html">client</a>
+              <a href="docs-server.html">server</a>
+            </div>
+          </details>
           <span class="nav__sep nav__hide-sm">│</span>
           <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
             <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
@@ -134,10 +141,18 @@
 
       <!-- ── page title ────────────────────────────────────────────── -->
       <section class="manpage">
-        <h2>DOCUMENTATION</h2>
+        <h2>CLIENT DOCUMENTATION</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> v0.13.0 — full reference. Written in C99
-          against <code>libtirpc</code>. MIT license.
+          <strong>nfsdiag</strong> v0.22.0 — the <code>client</code> namespace
+          and project reference. Written in C99 against <code>libtirpc</code>.
+          MIT license.
+        </p>
+        <p>
+          This page covers <code>nfsdiag client</code> — testing an NFS server
+          from a client machine — plus the project-wide sections: output
+          formats, fixtures, packaging, security, architecture, changelog.
+          Diagnostics that run on the NFS server itself are documented in the
+          <a href="docs-server.html">server documentation</a>.
         </p>
 
         <h2>CONTENTS</h2>
@@ -307,6 +322,12 @@ nfsdiag diff &lt;before.json&gt; &lt;after.json&gt;</code></pre>
               <td class="arg">FILE</td>
               <td class="def">—</td>
               <td>Read one host per line from FILE and run diagnostics for each. Lines starting with <code class="inline">#</code> are comments. Respects <code class="inline">--delay-ms</code> between hosts.</td>
+            </tr>
+            <tr>
+              <td class="flag">--peer</td>
+              <td class="arg">HOST[:PORT]</td>
+              <td class="def">9100</td>
+              <td>Correlate with a peer <code class="inline">nfsdiag server --listen</code> exporter. The client samples the server's metrics before and after its run and prints a <code class="inline">paired:</code> verdict locating the bottleneck (server, network, or client).</td>
             </tr>
             <tr>
               <td class="flag">--watch</td>
@@ -506,46 +527,10 @@ nfsdiag diff &lt;before.json&gt; &lt;after.json&gt;</code></pre>
         <p class="subsec">nfsdiag server</p>
         <p>
           The <code class="inline">server</code> namespace runs on the NFS
-          server itself and audits its configuration. At least one check must
-          be selected. More server-side checks are planned; the roadmap lives
-          in <code class="inline">features_server.md</code> in the source tree.
+          server itself and audits its configuration. Its flags and checks are
+          documented in the
+          <a href="docs-server.html">server documentation</a>.
         </p>
-        <table class="ref-table">
-          <thead>
-            <tr>
-              <th>flag</th>
-              <th>arg</th>
-              <th>default</th>
-              <th>description</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td class="flag">--exports-audit</td>
-              <td class="arg">—</td>
-              <td class="def">—</td>
-              <td>Audit the exports file: flag syntax errors, exports without a client list, and risky options such as <code class="inline">no_root_squash</code>, <code class="inline">insecure</code>, and read-write exports to any host.</td>
-            </tr>
-            <tr>
-              <td class="flag">--exports-file</td>
-              <td class="arg">FILE</td>
-              <td class="def">/etc/exports</td>
-              <td>Exports file to audit instead of <code class="inline">/etc/exports</code>.</td>
-            </tr>
-            <tr>
-              <td class="flag">-v, --verbose</td>
-              <td class="arg">—</td>
-              <td class="def">—</td>
-              <td>Show all diagnostic steps, including INFO-level events.</td>
-            </tr>
-            <tr>
-              <td class="flag">-q, --quiet</td>
-              <td class="arg">—</td>
-              <td class="def">—</td>
-              <td>Suppress human stdout.</td>
-            </tr>
-          </tbody>
-        </table>
       </section>
 
       <!-- ══════════════════════════════════════════════════════════════
@@ -893,7 +878,7 @@ nfsdiag diff &lt;before.json&gt; &lt;after.json&gt;</code></pre>
           low-level OK messages only shown with <code class="inline">--verbose</code>.
           Coloured output when stdout is a terminal.
         </p>
-<pre><code class="block">nfsdiag 0.13.0: 192.168.0.21
+<pre><code class="block">nfsdiag 0.22.0: 192.168.0.21
 [OK]   1 export(s) discovered
 [WARN] root_squash not detected on /data (uid 0 remains 0)
 summary: ok=12 warn=1 fail=0</code></pre>
@@ -1357,7 +1342,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <tr><th>constant</th><th colspan="3">value</th></tr>
           </thead>
           <tbody>
-            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.13.0"</td></tr>
+            <tr><td class="flag">NFSDIAG_VERSION</td><td colspan="3">"0.22.0"</td></tr>
             <tr><td class="flag">MAX_XDR_EXPORT_NODES</td><td colspan="3">2048</td></tr>
             <tr><td class="flag">MAX_XDR_GROUP_NODES</td><td colspan="3">8192</td></tr>
             <tr><td class="flag">MAX_HOSTS</td><td colspan="3">256</td></tr>
@@ -1461,6 +1446,29 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
             <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
           </svg>
         </h2>
+
+        <p class="subsec">v0.15.0</p>
+        <p class="lede">
+          Security pass for the server namespace: exports hardening analysis,
+          identity mapping, Kerberos, ACLs, and a practical root_squash test.
+        </p>
+        <ul class="fixtures">
+          <li>New server checks: <code class="inline">--security-audit</code>, <code class="inline">--idmap-check</code>, <code class="inline">--krb5-server</code>, <code class="inline">--acl-check</code> — all part of <code class="inline">--all</code></li>
+          <li><code class="inline">--squash-check</code> mounts each export from localhost and reports the effective root mapping; intrusive, opt-in, root only</li>
+          <li><code class="inline">--audit-trail</code> captures config snapshots (exports, nfs.conf, idmapd.conf, krb5.conf) with <code class="inline">CONFIG.SHA256SUMS</code> into <code class="inline">--output-dir</code></li>
+        </ul>
+
+        <p class="subsec">v0.14.0</p>
+        <p class="lede">
+          Foundation of the server namespace: five local checks, structured
+          output, and offline diagnosis of copied filesystem trees.
+        </p>
+        <ul class="fixtures">
+          <li>New server checks: <code class="inline">--daemons</code>, <code class="inline">--ports-firewall</code>, <code class="inline">--storage-health</code>, <code class="inline">--version-matrix</code>, <code class="inline">--sysctl-advisor</code>; <code class="inline">--all</code> runs everything</li>
+          <li><code class="inline">server --root DIR</code> reads <code class="inline">/proc</code> and <code class="inline">/etc</code> under a copied tree (an extracted sosreport); live-only steps are skipped with an explanation</li>
+          <li>The server namespace gained the shared output flags: <code class="inline">--json</code>, <code class="inline">--html</code>, <code class="inline">--output-format</code>, <code class="inline">--output-dir</code></li>
+          <li>Unified report pipeline for server runs: same banner, summary and structured reports as the client; OK/INFO lines print by default in server mode</li>
+        </ul>
 
         <p class="subsec">v0.13.0</p>
         <p class="lede">
@@ -1719,7 +1727,7 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.13.0</strong></span>
+      <span>nfsdiag <strong>v0.22.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>
@@ -1730,6 +1738,8 @@ make release         <span class="code__d"># tag v$VERSION and push (workflow pu
       <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
       <span class="foot__sep">·</span>
       <a href="index.html">home</a>
+      <span class="foot__sep">·</span>
+      <a href="docs-server.html">server docs</a>
       <span class="foot__sep">·</span>
       <a href="author.html">author</a>
       <span class="foot__sep">·</span>

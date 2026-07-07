@@ -108,6 +108,22 @@ Override prefix:
 make PREFIX=/opt/nfsdiag install
 ```
 
+### Optional: eBPF performance checks
+
+The default `make` build has no eBPF dependencies. To build the eBPF-based
+performance checks (libbpf/CO-RE), configure the tree first:
+
+```sh
+./configure --enable-ebpf   # needs clang, bpftool and libbpf (pkg-config)
+make
+sudo make install
+```
+
+`./configure` auto-detects the toolchain (pass `--disable-ebpf` to force it
+off, `--prefix=DIR` to set the install prefix). Plain `make` without
+`./configure` still works and builds without eBPF, so packaging and CI are
+unaffected.
+
 Manual compile:
 ```sh
 gcc -O2 -Wall -Wextra -D_GNU_SOURCE -I/usr/include/tirpc \
@@ -169,14 +185,96 @@ The `server` namespace runs on the NFS server itself and audits its
 configuration (the client namespace tests a server from the outside):
 
 ```sh
+sudo ./nfsdiag server --all                               # every server check
 sudo ./nfsdiag server --exports-audit                     # audit /etc/exports
 ./nfsdiag server --exports-audit --exports-file ./exports # audit a specific file
+sudo ./nfsdiag server --daemons --ports-firewall          # services and listeners
+sudo ./nfsdiag server --version-matrix --sysctl-advisor   # versions and tunables
+sudo ./nfsdiag server --storage-health                    # fs under each export
+./nfsdiag server --all --root /tmp/sosreport-extracted    # diagnose a copied tree
+sudo ./nfsdiag server --all --json=server-report.json     # structured report
+sudo ./nfsdiag server --security-audit --idmap-check       # security posture
+sudo ./nfsdiag server --krb5-server                        # Kerberos server side
+sudo ./nfsdiag server --squash-check                       # practical root_squash test
+sudo ./nfsdiag server --all --audit-trail --output-dir ./evidence  # incident bundle
 ```
 
-`--exports-audit` flags syntax errors, exports without a client list, and
-risky options such as `no_root_squash`, `insecure` and world-writable
-wildcards. More server-side checks are planned; see
-[features_server.md](features_server.md) for the roadmap.
+The checks:
+
+- `--daemons` — kernel nfsd, rpcbind, rpc.mountd, rpc.statd, rpc.idmapd and
+  gssproxy/rpc.svcgssd state, plus rpcbind program registrations.
+- `--exports-audit` — syntax errors, exports without a client list, and risky
+  options such as `no_root_squash`, `insecure` and world-writable wildcards.
+- `--ports-firewall` — TCP listeners on 2049/111, dynamic mountd/statd/lockd
+  ports, and a best-effort firewalld/nftables rule check.
+- `--storage-health` — for each export: directory exists, space and inode
+  usage, and warnings for filesystems that break NFS (tmpfs, overlayfs,
+  NFS re-export).
+- `--version-matrix` — enabled NFS versions, lease/grace times, block size.
+- `--sysctl-advisor` — nfsd thread starvation from `/proc/net/rpc/nfsd` and
+  network buffer tunables, with recommendations.
+- `--security-audit` — deep exports analysis beyond syntax: `subtree_check`,
+  `insecure_locks`, `all_squash` without `anonuid`, `sec=sys`, duplicate
+  paths, nested exports without `crossmnt`.
+- `--idmap-check` — `idmapd.conf` domain vs the host's DNS domain (the
+  classic `nobody:nobody` cause) and the nobody-user mapping.
+- `--krb5-server` — keytab presence/permissions and `nfs/` principal,
+  default realm, gss daemons, NTP synchronization.
+- `--acl-check` — POSIX ACL support on the filesystem under each export.
+- `--squash-check` — mounts each export from localhost, creates a file as
+  root and reports the effective mapping. Intrusive (mounts and writes), so
+  it is not part of `--all` and requires root.
+- `--audit-trail` — with `--output-dir`, captures copies of the exports
+  file, `nfs.conf`, `idmapd.conf` and `krb5.conf` plus `CONFIG.SHA256SUMS`
+  for incident evidence.
+- `--rpc-stats` — `/proc/net/rpc/nfsd` reply-cache hit rate, bad RPC calls
+  (auth failures or malformed requests) and packet/byte traffic.
+- `--locks` — held locks by type from `/proc/locks`, NFSv4 lease and grace
+  times, and NLM/NSM (NFSv3 locking) registration.
+- `--clients` — connected NFSv4 clients from `/proc/fs/nfsd/clients/`, their
+  minor version and callback state, plus established TCP connections on 2049.
+- `--client-states` — opens, locks, delegations and layouts held per client,
+  flagging clients that leak file handles or hoard delegations.
+- `--log-intel` — scans the journal (or `/var/log/messages` under `--root`)
+  for known nfsd/mountd/statd problem signatures and prints the matching
+  issue plus a suggested fix.
+- `--rmtab-audit` — stale `/var/lib/nfs/rmtab` entries (count 0) and orphaned
+  NSM (`sm/`) monitors that trigger `sm-notify` storms at boot.
+- `--memory-pressure` — MemAvailable vs the reply cache and dentry/inode
+  caches, plus `vm.*` tunables (`vfs_cache_pressure`, `swappiness`,
+  `dirty_ratio`) that affect NFS metadata performance.
+
+`nfsdiag server --listen [ADDR:]PORT` serves Prometheus gauges (nfsd threads,
+DRC hits/misses, RPC calls, connected clients, held locks) over HTTP,
+refreshing every `--watch` seconds; `nfsdiag server --output-format prometheus`
+prints a one-shot snapshot for a node_exporter textfile collector.
+
+- `--latency-profile` — eBPF histogram (needs an `--enable-ebpf` build and
+  root) of nfsd read/write/commit latency, to tell whether the server is the
+  bottleneck.
+- `--per-client-trace` — eBPF per-client nfsd ops and average latency, to find
+  the client degrading the server for everyone.
+- `--backend-bench` — write/read benchmark of the storage under each export,
+  establishing the raw disk ceiling to separate storage from NFS/network.
+- `--capture` — capture NFS traffic on port 2049 with `tcpdump` (needs root)
+  and, if `tshark` is present, summarize it.
+- `--ha-check` — high-availability validation: exports without an explicit
+  `fsid=`, whether `/var/lib/nfs` is on shared storage, and pacemaker NFS
+  resources. Opt-in; not part of `--all`.
+- `--ganesha-check` — detect nfs-ganesha (userland) vs kernel nfsd, parse
+  `ganesha.conf` (EXPORT blocks and FSALs), and detect a container/Kubernetes
+  environment. Opt-in.
+
+`--latency-profile`, `--per-client-trace`, `--backend-bench` and `--capture`
+are intrusive and are not part of `--all`. `--duration SEC` sets the sampling
+window (default 10).
+
+`--root DIR` points every `/proc` and `/etc` read at a copied filesystem tree
+(an extracted sosreport, for example); checks that need the live system are
+skipped with an explanation. The server namespace covers configuration audit,
+security, live state, a Prometheus exporter, eBPF performance profiling, and
+HA and nfs-ganesha checks; paired mode (below) correlates a client run with a
+server run.
 
 ---
 
@@ -260,6 +358,25 @@ sudo ./nfsdiag client --hosts-file /etc/nfs-servers.txt --json=audit.json
 ```
 
 File format: one host per line; lines starting with `#` are comments. Use `--delay-ms` to rate-limit between hosts.
+
+---
+
+## Paired mode
+
+Run the metrics exporter on the server and point the client at it to correlate
+both sides and locate the bottleneck:
+
+```sh
+# on the server
+nfsdiag server --listen 0.0.0.0:9100 --watch 2
+# on the client
+nfsdiag client --peer <server>:9100 <server>
+```
+
+The client samples the server's metrics before and after its own run and prints
+a `paired:` verdict — whether the server, the network, or the client was the
+bottleneck (e.g. *"paired: both sides healthy — 211 ops served during the test,
+no bad calls"*). Default peer port is 9100.
 
 ---
 
@@ -405,7 +522,8 @@ Diagnostic options:
                               Permit risky mount options such as exec/suid/dev
                               and skip the default nosuid,nodev,noexec hardening
       --profile NAME         quick, safe, full, performance, security, readonly
-      --hosts-file FILE      Read one host per line from FILE
+      --hosts-file FILE      Read one host per line from FILE; run diagnostics for each
+      --peer HOST[:PORT]     Correlate with a peer 'nfsdiag server --listen' (default port 9100)
       --watch SEC            Re-run diagnostics every SEC seconds until Ctrl-C
       --on-fail-exec SCRIPT  Execute SCRIPT via trusted path when any test fails
       --config FILE          Load options from FILE (key=value) before CLI args
@@ -451,12 +569,46 @@ Usage: nfsdiag server [OPTIONS]
 Runs diagnostics on the local NFS server. At least one check is required.
 
 Checks:
+      --all                  Run every server check
+      --daemons              Check nfsd, rpcbind, mountd, statd, idmapd and gss daemons
       --exports-audit        Audit /etc/exports and the live export table
+      --idmap-check          Validate idmapd.conf domain and nobody mapping
+      --krb5-server          Validate server-side Kerberos: keytab, realm, gss daemons, clock
+      --acl-check            Verify POSIX ACL support on the filesystem under each export
+      --squash-check         Mount each export from localhost and verify root squashing
+                              (intrusive: mounts and writes; not included in --all; needs root)
+      --ports-firewall       Check NFS listeners and firewall rules for the NFS ports
+      --security-audit       Deep exports analysis: legacy/risky options, duplicates, nesting
+      --storage-health       Inspect the filesystem under each export (space, inodes, type)
+      --version-matrix       Report enabled NFS versions, lease/grace times, block size
+      --sysctl-advisor       Inspect nfsd thread starvation and network tunables
+      --rpc-stats            Analyze /proc/net/rpc/nfsd: reply cache, bad calls, traffic
+      --locks                Summarize held locks, NFSv4 lease/grace, NLM/NSM registration
+      --clients              Inventory connected NFSv4 clients and their callback state
+      --client-states        Count NFSv4 opens/locks/delegations/layouts per client
+      --latency-profile      eBPF: per-op nfsd latency histogram (needs root and an eBPF build)
+      --per-client-trace     eBPF: per-client nfsd ops and average latency
+      --backend-bench        Benchmark the storage under each export (raw disk ceiling)
+      --capture              Capture NFS traffic on port 2049 with tcpdump
+      --duration SEC         Sampling window for latency/per-client/capture (default 10)
+      --ha-check             Validate HA: fsid, shared NFS state, pacemaker resources
+      --ganesha-check        Detect nfs-ganesha vs kernel nfsd and container/k8s context
+      --log-intel            Correlate nfsd/mountd/statd log messages with known issues
+      --rmtab-audit          Detect stale rmtab/NSM entries that bloat sm-notify
+      --memory-pressure      Assess memory pressure on the DRC and dentry/inode caches
 
 Check options:
       --exports-file FILE    Exports file to audit. Default: /etc/exports
+      --audit-trail          Capture config snapshots and checksums into --output-dir
 
 Output options:
+      --root DIR             Read /proc and /etc under DIR (e.g. an extracted sosreport)
+      --json[=PATH]          Emit JSON report to PATH (use '-' or omit for stdout)
+      --html[=PATH]          Emit HTML report to PATH (use '-' or omit for stdout)
+      --output-format FMT    Terminal output: text (default), table, ndjson, prometheus, junit
+      --output-dir DIR       Write JSON, HTML, evidence and checksums to DIR
+      --watch SEC            Re-run the selected checks every SEC seconds until interrupted
+      --listen [ADDR:]PORT   Serve Prometheus server metrics over HTTP; binds 127.0.0.1
   -v, --verbose              Show all diagnostic steps
   -q, --quiet                Suppress human stdout
   -V, --version              Print version and exit

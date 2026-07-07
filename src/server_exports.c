@@ -78,6 +78,83 @@ static int opts_contain(const char *opts, const char *needle) {
     return 0;
 }
 
+static void scan_emit(struct export_finding *out, int max, int *n,
+                      int level, const char *fmt, ...) {
+    if (*n >= max)
+        return;
+    va_list ap;
+    va_start(ap, fmt);
+    out[*n].level = level;
+    vsnprintf(out[*n].msg, sizeof(out[*n].msg), fmt, ap);
+    va_end(ap);
+    (*n)++;
+}
+
+static void scan_token(const struct export_line *e, const char *token,
+                       struct export_finding *out, int max, int *n) {
+    const char *open = strchr(token, '(');
+    if (!open)
+        return;
+    if (opts_contain(open, "subtree_check"))
+        scan_emit(out, max, n, 1, "%s: subtree_check is legacy: it costs "
+                  "performance and breaks file handles on renames; use "
+                  "no_subtree_check", e->path);
+    if (opts_contain(open, "insecure_locks") || opts_contain(open, "no_auth_nlm"))
+        scan_emit(out, max, n, 1, "%s: insecure_locks skips lock request "
+                  "authentication", e->path);
+    if (opts_contain(open, "all_squash") && !strstr(open, "anonuid="))
+        scan_emit(out, max, n, 0, "%s: all_squash without anonuid=/anongid= "
+                  "maps everyone to nobody; set them explicitly if a shared "
+                  "account is intended", e->path);
+    if (opts_contain(open, "sec=sys") || strstr(open, "sec=sys:"))
+        scan_emit(out, max, n, 0, "%s: sec=sys trusts client-side identities; "
+                  "consider sec=krb5* where Kerberos is available", e->path);
+    if (token[0] == '*' && opts_contain(open, "ro") && !opts_contain(open, "rw"))
+        scan_emit(out, max, n, 0, "%s: read-only export to any host: confirm "
+                  "world-readable data is intended", e->path);
+}
+
+int exports_security_scan(const struct export_line *entries, int n_entries,
+                          struct export_finding *out, int max) {
+    int n = 0;
+    for (int i = 0; i < n_entries; i++) {
+        for (int c = 0; c < entries[i].client_count; c++)
+            scan_token(&entries[i], entries[i].clients[c], out, max, &n);
+
+        for (int j = i + 1; j < n_entries; j++) {
+            if (strcmp(entries[i].path, entries[j].path) == 0) {
+                scan_emit(out, max, &n, 1, "%s: exported twice (lines %d and "
+                          "%d); the kernel merges them and option conflicts "
+                          "are silent", entries[i].path, entries[i].lineno,
+                          entries[j].lineno);
+            }
+        }
+    }
+    /* nested exports: child under a parent that lacks crossmnt */
+    for (int i = 0; i < n_entries; i++) {
+        for (int j = 0; j < n_entries; j++) {
+            if (i == j)
+                continue;
+            size_t plen = strlen(entries[i].path);
+            if (strncmp(entries[j].path, entries[i].path, plen) == 0 &&
+                entries[j].path[plen] == '/') {
+                int parent_crossmnt = 0;
+                for (int c = 0; c < entries[i].client_count; c++) {
+                    const char *open = strchr(entries[i].clients[c], '(');
+                    if (open && opts_contain(open, "crossmnt"))
+                        parent_crossmnt = 1;
+                }
+                if (!parent_crossmnt)
+                    scan_emit(out, max, &n, 0, "%s: nested under %s, which "
+                              "lacks crossmnt; clients mounting the parent "
+                              "will not traverse into it",
+                              entries[j].path, entries[i].path);
+            }
+        }
+    }
+    return n;
+}
+
 int exports_client_risk(const char *token, char *why, size_t whysz) {
     const char *open = strchr(token, '(');
     const char *close = strrchr(token, ')');
@@ -108,5 +185,12 @@ int exports_client_risk(const char *token, char *why, size_t whysz) {
         snprintf(why, whysz, "'%s': read-write export to any host", token);
         return 1;
     }
+    return 0;
+}
+
+int export_line_has_fsid(const struct export_line *e) {
+    for (int i = 0; i < e->client_count; i++)
+        if (strstr(e->clients[i], "fsid=") != NULL)
+            return 1;
     return 0;
 }

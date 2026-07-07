@@ -86,7 +86,7 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   border-bottom: 1px solid var(--hair);
 }
 .nav__inner {
-  max-width: 880px;
+  max-width: 1200px;
   margin: 0 auto;
   padding: 14px 28px;
   display: flex;
@@ -140,6 +140,42 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 }
 .nav__ext:hover { border-color: var(--accent); color: var(--accent) !important; }
 
+.nav__drop { position: relative; }
+.nav__drop > summary {
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+  user-select: none;
+}
+.nav__drop > summary::-webkit-details-marker { display: none; }
+.nav__drop > summary::after { content: " ▾"; font-size: 10px; }
+.nav__drop > summary:hover,
+.nav__drop[open] > summary { color: var(--accent); }
+.nav__drop-menu {
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  min-width: 110px;
+  background: var(--bg);
+  border: 1px solid var(--hair-strong);
+  border-radius: 4px;
+  padding: 6px 0;
+  z-index: 30;
+}
+.nav__drop-menu a {
+  padding: 6px 14px;
+  white-space: nowrap;
+  text-decoration: none;
+  color: var(--muted);
+}
+.nav__drop-menu a:hover { color: var(--accent); }
+
+@media (max-width: 960px) {
+  .nav__links { gap: 16px; }
+}
 @media (max-width: 720px) {
   .nav__links { gap: 14px; }
   .nav__links .nav__hide-sm { display: none; }
@@ -148,9 +184,12 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 /* ── Page shell ────────────────────────────────────────────────────────── */
 
 .page {
-  max-width: 760px;
+  max-width: 1140px;
   margin: 0 auto;
-  padding: 48px 28px 72px;
+  padding: 48px 36px 72px;
+}
+@media (max-width: 900px) {
+  .page { padding: 40px 24px 64px; }
 }
 
 /* ── Manpage header ────────────────────────────────────────────────────── */
@@ -181,7 +220,7 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 .manpage p {
   margin: 0 0 8px;
   padding-left: 22px;
-  max-width: 64ch;
+  max-width: 78ch;
 }
 .manpage .desc { color: var(--fg); }
 .manpage .opts { color: var(--muted); }
@@ -190,6 +229,17 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 .manpage .arg { color: var(--muted); }
 .manpage .byline { color: var(--muted); font-size: 13px; margin-top: 12px; }
 
+/* Home hero: text and terminal side by side on desktop */
+@media (min-width: 1100px) {
+  .manpage--hero {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 470px;
+    gap: 56px;
+    align-items: center;
+  }
+  .manpage--hero .terminal { margin-top: 0; }
+}
+
 /* ── Terminal mock ─────────────────────────────────────────────────────── */
 
 .terminal {
@@ -197,6 +247,7 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
   overflow: hidden;
   background: var(--term-bg);
   color: var(--term-fg);
+  max-width: 960px;
   margin: 32px 0 0;
   box-shadow: 0 24px 48px -28px rgba(0, 0, 0, 0.45),
     0 0 0 1px rgba(255, 255, 255, 0.03) inset;
@@ -235,6 +286,8 @@ a:hover { color: var(--accent); text-decoration-color: var(--accent); }
 }
 .terminal__body .prompt { color: var(--accent); }
 .terminal__body .ok { color: var(--term-ok); }
+.terminal__body .warn { color: var(--warn); }
+.terminal__body .fail { color: var(--fail); }
 .terminal__body .dim { color: var(--term-dim); }
 .terminal__body .cursor {
   display: inline-block;
@@ -294,6 +347,7 @@ pre code, code.block {
   font-size: 13px;
   line-height: 1.6;
   overflow-x: auto;
+  overflow-x: auto;
   white-space: pre;
   color: var(--fg);
 }
@@ -323,7 +377,11 @@ code.inline {
 
 .recipes {
   display: grid;
-  gap: 22px;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 26px 32px;
+}
+@media (max-width: 900px) {
+  .recipes { grid-template-columns: 1fr; gap: 22px; }
 }
 .recipe__desc {
   margin: 0 0 8px;
@@ -375,12 +433,15 @@ table {
 
 .fixtures {
   display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 6px 28px;
   margin: 18px 0 22px;
   padding: 0;
   list-style: none;
   font-size: 13.5px;
+}
+@media (max-width: 1000px) {
+  .fixtures { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 640px) {
   .fixtures { grid-template-columns: 1fr; }
@@ -410,7 +471,6 @@ table {
   font-size: 14px;
   line-height: 1.65;
   margin: 0 0 16px;
-  max-width: 68ch;
   color: var(--fg);
 }
 .lede .muted { color: var(--muted); }
@@ -418,7 +478,7 @@ table {
 /* ── Footer ────────────────────────────────────────────────────────────── */
 
 .foot {
-  max-width: 760px;
+  max-width: 1140px;
   margin: 96px auto 40px;
   padding: 24px 28px 0;
   border-top: 1px solid var(--hair);

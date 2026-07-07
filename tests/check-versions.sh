@@ -58,6 +58,12 @@ expect "website/docs.html footer" \
 expect "website/author.html footer" \
     "$(sed -n 's/.*nfsdiag <strong>v\([^<]*\)<\/strong>.*/\1/p' website/author.html | head -1)"
 
+expect "website/docs-server.html header" \
+    "$(sed -n 's/.*<strong>nfsdiag<\/strong> v\([0-9][0-9.]*\).*/\1/p' website/docs-server.html | head -1)"
+
+expect "website/docs-server.html footer" \
+    "$(sed -n 's/.*nfsdiag <strong>v\([^<]*\)<\/strong>.*/\1/p' website/docs-server.html | head -1)"
+
 expect "website/docs.html NFSDIAG_VERSION row" \
     "$(sed -n 's/.*NFSDIAG_VERSION<\/td><td colspan="3">"\([^"]*\)".*/\1/p' website/docs.html)"
 

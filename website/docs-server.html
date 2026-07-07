@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>nfsdiag server — server-side NFS documentation</title>
+    <meta
+      name="description"
+      content="Reference for nfsdiag server: diagnostics that run on the NFS server itself. Exports audit, CLI flags, exit codes, and the server-side checks."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="canonical" href="https://www.nfsdiag.org/docs-server.html" />
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />
+    <meta name="author" content="Leandro Ferreira" />
+    <meta
+      name="keywords"
+      content="nfsdiag server, NFS server diagnostics, exports audit, /etc/exports, no_root_squash, insecure export, exportfs, NFS server troubleshooting, Linux NFS server"
+    />
+    <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0E1217" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="sitemap" type="application/xml" href="/sitemap.xml" />
+    <meta property="og:url" content="https://www.nfsdiag.org/docs-server.html" />
+    <meta property="og:type" content="article" />
+    <meta property="og:site_name" content="nfsdiag" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:title" content="nfsdiag server — server-side NFS documentation" />
+    <meta
+      property="og:description"
+      content="Reference for nfsdiag server: diagnostics that run on the NFS server itself. Exports audit, CLI flags, exit codes, and the server-side checks."
+    />
+    <meta property="og:image" content="https://www.nfsdiag.org/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="nfsdiag — NFS diagnostics from both sides" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="nfsdiag server — server-side NFS documentation" />
+    <meta
+      name="twitter:description"
+      content="Reference for nfsdiag server: diagnostics that run on the NFS server itself. Exports audit, CLI flags, exit codes, and the server-side checks."
+    />
+    <meta name="twitter:image" content="https://www.nfsdiag.org/og-image.png" />
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "TechArticle",
+          "@id": "https://www.nfsdiag.org/docs-server.html#article",
+          "headline": "nfsdiag server — server-side NFS documentation",
+          "description": "Reference for nfsdiag server: diagnostics that run on the NFS server itself. Exports audit, CLI flags, exit codes, and the server-side checks.",
+          "url": "https://www.nfsdiag.org/docs-server.html",
+          "inLanguage": "en",
+          "dateModified": "2026-07-02",
+          "author": { "@id": "https://www.nfsdiag.org/author.html#person" },
+          "about": { "@id": "https://www.nfsdiag.org/#software" }
+        }
+      ]
+    }
+    </script>
+    <link rel="stylesheet" href="assets/site.css" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("nfsdiag-theme");
+          if (t === "dark" || t === "light") {
+            document.documentElement.setAttribute("data-theme", t);
+          }
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <symbol id="nfsdiag-mark" viewBox="0 0 64 64">
+          <path
+            class="folder"
+            d="M 8 14 H 24 L 28 18 H 56 V 52 H 8 Z"
+            fill="none"
+            stroke-width="4.5"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+          <path
+            class="pulse"
+            d="M 0 35 H 20 L 23 29 L 28 43 L 34 21 L 40 47 L 44 35 H 64"
+            fill="none"
+            stroke-width="4.5"
+            stroke-linejoin="round"
+            stroke-linecap="round"
+          />
+        </symbol>
+      </defs>
+    </svg>
+
+    <!-- ── nav ──────────────────────────────────────────────────────── -->
+    <header class="nav">
+      <div class="nav__inner">
+        <a class="nav__brand" href="index.html">
+          <svg class="mark" width="22" height="22" viewBox="0 0 64 64" aria-label="nfsdiag">
+            <use href="#nfsdiag-mark"></use>
+          </svg>
+          <span class="wm">nfs<span class="wm__diag">diag</span></span>
+        </a>
+        <nav class="nav__links" aria-label="primary">
+          <a href="index.html">← home</a>
+          <a href="#cli" class="nav__hide-sm">cli ref</a>
+          <a href="#exports-audit" class="nav__hide-sm">exports audit</a>
+          <a href="#checks" class="nav__hide-sm">checks</a>
+          <details class="nav__drop">
+            <summary>docs: server</summary>
+            <div class="nav__drop-menu">
+              <a href="docs.html">client</a>
+              <a href="docs-server.html">server</a>
+            </div>
+          </details>
+          <span class="nav__sep nav__hide-sm">│</span>
+          <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
+            <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+              <circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+              <path d="M 8 2 A 6 6 0 0 1 8 14 Z" fill="currentColor"/>
+            </svg>
+          </button>
+          <a class="nav__ext" href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">github ↗</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="page" id="top">
+      <div class="manhead" aria-hidden="true">
+        <span>NFSDIAG-SERVER(1)</span>
+        <span>User Manual</span>
+        <span>NFSDIAG-SERVER(1)</span>
+      </div>
+
+      <!-- ── page title ────────────────────────────────────────────── -->
+      <section class="manpage">
+        <h2>SERVER DOCUMENTATION</h2>
+        <p class="desc">
+          <strong>nfsdiag</strong> v0.22.0 — the <code>server</code> namespace.
+          Runs on the NFS server itself and audits its configuration.
+        </p>
+        <p>
+          This page covers <code>nfsdiag server</code>. To test a server from a
+          client machine (network, RPC, mounts, permissions, performance), see
+          the <a href="docs.html">client documentation</a>. Project-wide
+          sections — output formats, packaging, security, changelog — also live
+          there.
+        </p>
+
+        <h2>CONTENTS</h2>
+        <ul class="toc">
+          <li><a href="#cli">CLI reference</a></li>
+          <li><a href="#exports-audit">exports audit</a></li>
+          <li><a href="#exit">exit codes</a></li>
+          <li><a href="#checks">server checks</a></li>
+          <li><a href="#see-also">see also</a></li>
+        </ul>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           CLI REFERENCE
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="cli">
+        <h2 class="section__title">
+          <a class="section__hash" href="#cli">#</a>
+          CLI reference
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <pre><code class="block">nfsdiag server [OPTIONS]</code></pre>
+
+        <p>
+          At least one check must be selected; running
+          <code class="inline">nfsdiag server</code> with no check prints the
+          usage and exits 2. Checks report through the same engine as the
+          client namespace, so severity levels and exit codes behave the same
+          way.
+        </p>
+
+        <table class="ref-table">
+          <thead>
+            <tr>
+              <th>flag</th>
+              <th>arg</th>
+              <th>default</th>
+              <th>description</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="flag">--all</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Run every server check.</td>
+            </tr>
+            <tr>
+              <td class="flag">--daemons</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Check the kernel nfsd, <code class="inline">rpcbind</code>, <code class="inline">rpc.mountd</code>, <code class="inline">rpc.statd</code>, <code class="inline">rpc.idmapd</code> and <code class="inline">gssproxy</code>/<code class="inline">rpc.svcgssd</code>, plus the program registrations in the local rpcbind.</td>
+            </tr>
+            <tr>
+              <td class="flag">--exports-audit</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Audit the exports file: flag syntax errors, exports without a client list, and risky options such as <code class="inline">no_root_squash</code>, <code class="inline">insecure</code>, and read-write exports to any host.</td>
+            </tr>
+            <tr>
+              <td class="flag">--ports-firewall</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Check TCP listeners on 2049/111, report the dynamic mountd/statd/lockd ports, and run a best-effort firewalld/nftables rule check.</td>
+            </tr>
+            <tr>
+              <td class="flag">--storage-health</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>For each export: directory exists, space and inode usage (warning above 90%), and the filesystem type, warning about types that break NFS (tmpfs, overlayfs, NFS re-export).</td>
+            </tr>
+            <tr>
+              <td class="flag">--version-matrix</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Report the NFS versions enabled in <code class="inline">/proc/fs/nfsd/versions</code>, the NFSv4 lease and grace times, and the maximum block size.</td>
+            </tr>
+            <tr>
+              <td class="flag">--sysctl-advisor</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Detect nfsd thread starvation from the <code class="inline">th</code> histogram in <code class="inline">/proc/net/rpc/nfsd</code> and check network buffer tunables, with recommendations.</td>
+            </tr>
+            <tr>
+              <td class="flag">--security-audit</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Deep exports analysis beyond syntax: <code class="inline">subtree_check</code>, <code class="inline">insecure_locks</code>, <code class="inline">all_squash</code> without <code class="inline">anonuid</code>, <code class="inline">sec=sys</code>, duplicate paths, nested exports without <code class="inline">crossmnt</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--idmap-check</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Validate <code class="inline">idmapd.conf</code>: NFSv4 domain vs the host's DNS domain (mismatches map users to nobody) and the Nobody-User mapping.</td>
+            </tr>
+            <tr>
+              <td class="flag">--krb5-server</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Server-side Kerberos: keytab presence and permissions, <code class="inline">nfs/</code> principal, default realm, gss daemons, NTP synchronization.</td>
+            </tr>
+            <tr>
+              <td class="flag">--acl-check</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Verify POSIX ACL support on the filesystem under each export with a non-destructive xattr probe.</td>
+            </tr>
+            <tr>
+              <td class="flag">--squash-check</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Mount each export from localhost, create a file as root and report the effective identity mapping. Intrusive (mounts and writes); not part of <code class="inline">--all</code>; requires root.</td>
+            </tr>
+            <tr>
+              <td class="flag">--audit-trail</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>With <code class="inline">--output-dir</code>, capture copies of the exports file, <code class="inline">nfs.conf</code>, <code class="inline">idmapd.conf</code> and <code class="inline">krb5.conf</code> plus <code class="inline">CONFIG.SHA256SUMS</code> for incident evidence.</td>
+            </tr>
+            <tr>
+              <td class="flag">--rpc-stats</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Analyze <code class="inline">/proc/net/rpc/nfsd</code>: reply-cache hit rate, bad RPC calls (auth failures or malformed requests) and packet/byte traffic.</td>
+            </tr>
+            <tr>
+              <td class="flag">--locks</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Summarize held locks by type from <code class="inline">/proc/locks</code>, the NFSv4 lease and grace times, and NLM/NSM (NFSv3 locking) registration.</td>
+            </tr>
+            <tr>
+              <td class="flag">--clients</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Inventory connected NFSv4 clients from <code class="inline">/proc/fs/nfsd/clients/</code> — minor version and callback state — plus established TCP connections on 2049.</td>
+            </tr>
+            <tr>
+              <td class="flag">--client-states</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Count NFSv4 opens, locks, delegations and layouts held per client, flagging clients that leak file handles or hoard delegations.</td>
+            </tr>
+            <tr>
+              <td class="flag">--latency-profile</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>eBPF latency histogram of nfsd read/write/commit (needs an <code class="inline">--enable-ebpf</code> build and root). Samples for <code class="inline">--duration</code> seconds. Not part of <code class="inline">--all</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--per-client-trace</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>eBPF per-client nfsd ops and average latency, to find the client degrading the server for everyone.</td>
+            </tr>
+            <tr>
+              <td class="flag">--backend-bench</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Write/read benchmark of the storage under each export — the raw disk ceiling — to separate a storage bottleneck from an NFS/network one.</td>
+            </tr>
+            <tr>
+              <td class="flag">--capture</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Capture NFS traffic on port 2049 with <code class="inline">tcpdump</code> (needs root); if <code class="inline">tshark</code> is present, summarize it.</td>
+            </tr>
+            <tr>
+              <td class="flag">--duration</td>
+              <td class="arg">SEC</td>
+              <td class="def">10</td>
+              <td>Sampling window for <code class="inline">--latency-profile</code>, <code class="inline">--per-client-trace</code> and <code class="inline">--capture</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--ha-check</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>High-availability validation: exports without an explicit <code class="inline">fsid=</code>, whether <code class="inline">/var/lib/nfs</code> is on shared storage, and pacemaker NFS resources. Not part of <code class="inline">--all</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--ganesha-check</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Detect nfs-ganesha (userland) vs kernel nfsd, parse <code class="inline">ganesha.conf</code> (EXPORT blocks and FSALs), and detect a container/Kubernetes environment.</td>
+            </tr>
+            <tr>
+              <td class="flag">--log-intel</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Scan the journal (or <code class="inline">/var/log/messages</code> under <code class="inline">--root</code>) for known nfsd/mountd/statd problem signatures and report each with a suggested fix.</td>
+            </tr>
+            <tr>
+              <td class="flag">--rmtab-audit</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Detect stale <code class="inline">/var/lib/nfs/rmtab</code> entries (count 0) and orphaned NSM (<code class="inline">sm/</code>) monitors that trigger <code class="inline">sm-notify</code> storms at boot.</td>
+            </tr>
+            <tr>
+              <td class="flag">--memory-pressure</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Assess memory pressure relevant to NFS: MemAvailable against the reply cache and dentry/inode caches, plus <code class="inline">vm.*</code> tunables.</td>
+            </tr>
+            <tr>
+              <td class="flag">--exports-file</td>
+              <td class="arg">FILE</td>
+              <td class="def">/etc/exports</td>
+              <td>Exports file to audit instead of <code class="inline">/etc/exports</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--root</td>
+              <td class="arg">DIR</td>
+              <td class="def">/</td>
+              <td>Read <code class="inline">/proc</code> and <code class="inline">/etc</code> under DIR instead of the live system — an extracted sosreport, for example. Checks that need the live system are skipped with an explanation.</td>
+            </tr>
+            <tr>
+              <td class="flag">--json</td>
+              <td class="arg">[PATH]</td>
+              <td class="def">—</td>
+              <td>Emit a structured JSON report to PATH. Use <code class="inline">-</code> or omit for stdout.</td>
+            </tr>
+            <tr>
+              <td class="flag">--html</td>
+              <td class="arg">[PATH]</td>
+              <td class="def">—</td>
+              <td>Emit a self-contained HTML report to PATH. Use <code class="inline">-</code> or omit for stdout.</td>
+            </tr>
+            <tr>
+              <td class="flag">--output-format</td>
+              <td class="arg">FMT</td>
+              <td class="def">text</td>
+              <td>Terminal output format: <code class="inline">text</code>, <code class="inline">table</code>, <code class="inline">ndjson</code>, <code class="inline">prometheus</code>, <code class="inline">junit</code>.</td>
+            </tr>
+            <tr>
+              <td class="flag">--output-dir</td>
+              <td class="arg">DIR</td>
+              <td class="def">—</td>
+              <td>Write a bundle containing JSON, HTML, evidence text, and SHA256 checksums.</td>
+            </tr>
+            <tr>
+              <td class="flag">--watch</td>
+              <td class="arg">SEC</td>
+              <td class="def">—</td>
+              <td>Re-run the selected checks every SEC seconds until interrupted.</td>
+            </tr>
+            <tr>
+              <td class="flag">--listen</td>
+              <td class="arg">[ADDR:]PORT</td>
+              <td class="def">127.0.0.1</td>
+              <td>Serve Prometheus server metrics (nfsd threads, DRC, RPC, clients, locks) over HTTP, refreshing every <code class="inline">--watch</code> seconds. <code class="inline">--output-format prometheus</code> prints the same gauges once.</td>
+            </tr>
+            <tr>
+              <td class="flag">-v, --verbose</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Show all diagnostic steps, including INFO-level events.</td>
+            </tr>
+            <tr>
+              <td class="flag">-q, --quiet</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Suppress human stdout.</td>
+            </tr>
+            <tr>
+              <td class="flag">-V, --version</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Print <code class="inline">nfsdiag &lt;version&gt;</code> and exit 0.</td>
+            </tr>
+            <tr>
+              <td class="flag">-h, --help</td>
+              <td class="arg">—</td>
+              <td class="def">—</td>
+              <td>Print the help text and exit 0.</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           EXPORTS AUDIT
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="exports-audit">
+        <h2 class="section__title">
+          <a class="section__hash" href="#exports-audit">#</a>
+          exports audit
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p>
+          <code class="inline">--exports-audit</code> parses the exports file
+          line by line and reports:
+        </p>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>syntax</th>
+              <td>
+                unparseable lines with the line number · relative export paths ·
+                unterminated quoted paths · exports with no client list
+                (exported to the world)
+              </td>
+            </tr>
+            <tr>
+              <th>security</th>
+              <td>
+                <code class="inline">no_root_squash</code> (remote root acts as
+                local root) · <code class="inline">insecure</code> (accepts
+                requests from unprivileged source ports) · read-write exports
+                to <code class="inline">*</code>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          Syntax problems are reported as <code class="inline">fail</code>,
+          risky options as <code class="inline">warn</code>. A clean file
+          produces a single <code class="inline">ok</code> line with the entry
+          count.
+        </p>
+
+        <div class="terminal" role="img" aria-label="example nfsdiag server output">
+          <div class="terminal__head">
+            <div class="terminal__lights">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="terminal__title">nfsdiag server — exports audit</div>
+            <div style="width: 50px"></div>
+          </div>
+<pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag server --exports-audit
+nfsdiag 0.22.0: exports audit of /etc/exports
+<span class="warn">[WARN]</span> exports /srv/data: '*(rw,no_root_squash)': no_root_squash lets remote root act as local root
+<span class="fail">[FAIL]</span> exports: line 7: export path must be absolute
+summary: ok=0 warn=1 fail=1
+<span class="prompt">$</span> <span class="cursor"></span></pre>
+        </div>
+
+        <p class="lede">
+          Use <code class="inline">--exports-file</code> to audit a staged copy
+          before applying it:
+        </p>
+<pre><code class="block">nfsdiag server --exports-audit --exports-file /tmp/exports.new</code></pre>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           EXIT CODES
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="exit">
+        <h2 class="section__title">
+          <a class="section__hash" href="#exit">#</a>
+          exit codes
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>0</th>
+              <td>no warnings or failures were recorded</td>
+            </tr>
+            <tr>
+              <th>1</th>
+              <td>at least one warning or failure was recorded</td>
+            </tr>
+            <tr>
+              <th>2</th>
+              <td>usage error or runtime failure (no check selected, unknown flag, unreadable exports file)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p>
+          Same semantics as the client namespace, so the same CI gates and
+          alert rules work for both.
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SERVER CHECKS
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="checks">
+        <h2 class="section__title">
+          <a class="section__hash" href="#checks">#</a>
+          server checks
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <p>
+          The <code>nfsdiag server</code> namespace groups its checks by theme.
+          The CLI reference above lists every flag.
+        </p>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>foundation</th>
+              <td><code>--daemons</code> · <code>--version-matrix</code> · <code>--ports-firewall</code> · <code>--storage-health</code> · <code>--sysctl-advisor</code> · <code>--exports-audit</code></td>
+            </tr>
+            <tr>
+              <th>security</th>
+              <td><code>--security-audit</code> · <code>--squash-check</code> · <code>--krb5-server</code> · <code>--idmap-check</code> · <code>--acl-check</code> · <code>--audit-trail</code></td>
+            </tr>
+            <tr>
+              <th>live state</th>
+              <td><code>--clients</code> · <code>--client-states</code> · <code>--locks</code> · <code>--rpc-stats</code> · <code>--log-intel</code> · <code>--rmtab-audit</code> · <code>--memory-pressure</code></td>
+            </tr>
+            <tr>
+              <th>metrics</th>
+              <td><code>--output-format prometheus</code> · <code>--listen</code> (HTTP exporter) · <code>--watch</code></td>
+            </tr>
+            <tr>
+              <th>performance</th>
+              <td><code>--latency-profile</code> (eBPF) · <code>--per-client-trace</code> (eBPF) · <code>--backend-bench</code> · <code>--capture</code></td>
+            </tr>
+            <tr>
+              <th>HA / ecosystem</th>
+              <td><code>--ha-check</code> · <code>--ganesha-check</code> (nfs-ganesha and Kubernetes awareness)</td>
+            </tr>
+            <tr>
+              <th>paired mode</th>
+              <td>the client's <code>--peer</code> correlates a client run with the server's <code>--listen</code> metrics to say, with evidence, which side of the wire the problem is on</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <p class="note">
+          The eBPF checks need a build configured with
+          <code>./configure --enable-ebpf</code> (clang, bpftool and libbpf).
+        </p>
+      </section>
+
+      <!-- ══════════════════════════════════════════════════════════════
+           SEE ALSO
+      ══════════════════════════════════════════════════════════════════ -->
+      <section class="section" id="see-also">
+        <h2 class="section__title">
+          <a class="section__hash" href="#see-also">#</a>
+          see also
+          <svg class="section__pulse" viewBox="0 0 200 14" preserveAspectRatio="none" aria-hidden="true">
+            <path d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200" stroke="currentColor" stroke-width="1" fill="none" stroke-linejoin="round" stroke-linecap="round"/>
+          </svg>
+        </h2>
+
+        <ul class="fixtures">
+          <li><a href="docs.html">client documentation</a> — testing a server from a client machine, output formats, packaging, security, architecture</li>
+          <li><a href="docs.html#changelog">changelog</a></li>
+          <li><code class="inline">man 8 nfsdiag</code> — installed by <code class="inline">make install</code></li>
+          <li><code class="inline">exportfs(8)</code>, <code class="inline">exports(5)</code></li>
+        </ul>
+      </section>
+    </main>
+
+    <footer class="foot">
+      <span>nfsdiag <strong>v0.22.0</strong></span>
+      <span class="foot__sep">·</span>
+      <span>MIT</span>
+      <span class="foot__sep">·</span>
+      <span>C99</span>
+      <span class="foot__sep">·</span>
+      <span>libtirpc</span>
+      <span class="foot__spacer"></span>
+      <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
+      <span class="foot__sep">·</span>
+      <a href="index.html">home</a>
+      <span class="foot__sep">·</span>
+      <a href="docs.html">client docs</a>
+      <span class="foot__sep">·</span>
+      <a href="author.html">author</a>
+      <span class="foot__sep">·</span>
+      <a href="https://github.com/lsferreira42/nfsdiag" target="_blank" rel="noopener">source ↗</a>
+      <span class="foot__sep">·</span>
+      <a href="docs.html#changelog">changelog</a>
+    </footer>
+
+    <!-- theme toggle -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        var btn = document.getElementById("theme-btn");
+        if (!btn) return;
+        btn.addEventListener("click", function () {
+          var cur = root.getAttribute("data-theme") || "light";
+          var next = cur === "light" ? "dark" : "light";
+          root.setAttribute("data-theme", next);
+          try { localStorage.setItem("nfsdiag-theme", next); } catch (e) {}
+        });
+      })();
+    </script>
+  </body>
+</html>

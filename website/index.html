@@ -1,12 +1,12 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>nfsdiag — diagnose NFS servers from the client side</title>
+    <title>nfsdiag — NFS diagnostics from the client and the server side</title>
     <meta
       name="description"
-      content="nfsdiag is a small C tool that walks the NFS stack from the wire up: network, rpcbind, NFS versions, mountd, exports, mount, permissions, root squash, locking, stale handles, performance. One IP, one command."
+      content="nfsdiag is a small C tool that diagnoses NFS from both sides: the client namespace walks the stack from the wire up (network, RPC, exports, mount, permissions, performance); the server namespace runs on the NFS server and audits its configuration."
     />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -19,7 +19,7 @@
     <meta name="author" content="Leandro Ferreira" />
     <meta
       name="keywords"
-      content="nfsdiag, NFS diagnostics, NFS troubleshooting, NFS client, rpcbind, mountd, NFSv3, NFSv4, ESTALE, root_squash, Linux, mount options, NFS performance, exports"
+      content="nfsdiag, NFS diagnostics, NFS troubleshooting, NFS client, NFS server, exports audit, /etc/exports, rpcbind, mountd, NFSv3, NFSv4, ESTALE, root_squash, no_root_squash, Linux, mount options, NFS performance"
     />
     <meta name="theme-color" content="#F4F1EA" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#0E1217" media="(prefers-color-scheme: dark)" />
@@ -30,20 +30,20 @@
     <meta property="og:type" content="website" />
     <meta property="og:site_name" content="nfsdiag" />
     <meta property="og:locale" content="en_US" />
-    <meta property="og:title" content="nfsdiag — diagnose NFS servers from the client side" />
+    <meta property="og:title" content="nfsdiag — NFS diagnostics from the client and the server side" />
     <meta
       property="og:description"
-      content="nfsdiag is a small C tool that walks the NFS stack from the wire up: network, rpcbind, NFS versions, mountd, exports, mount, permissions, root squash, locking, stale handles, performance. One IP, one command."
+      content="nfsdiag is a small C tool that diagnoses NFS from both sides: the client namespace walks the stack from the wire up (network, RPC, exports, mount, permissions, performance); the server namespace runs on the NFS server and audits its configuration."
     />
     <meta property="og:image" content="https://www.nfsdiag.org/og-image.png" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="nfsdiag — diagnose NFS servers from the client side" />
+    <meta property="og:image:alt" content="nfsdiag — NFS diagnostics from the client and the server side" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="nfsdiag — diagnose NFS servers from the client side" />
+    <meta name="twitter:title" content="nfsdiag — NFS diagnostics from the client and the server side" />
     <meta
       name="twitter:description"
-      content="A small C tool that walks the NFS stack from the wire up: network, RPC, exports, mount, permissions, locking, performance. One IP, one command."
+      content="A small C tool that diagnoses NFS from both sides: client mode walks the stack from the wire up; server mode audits the NFS server's own configuration."
     />
     <meta name="twitter:image" content="https://www.nfsdiag.org/og-image.png" />
     <script type="application/ld+json">
@@ -55,7 +55,7 @@
           "@id": "https://www.nfsdiag.org/#website",
           "url": "https://www.nfsdiag.org/",
           "name": "nfsdiag",
-          "description": "Client-side NFS diagnostic tool for Linux",
+          "description": "NFS diagnostic tool for Linux, client side and server side",
           "inLanguage": "en",
           "publisher": { "@id": "https://www.nfsdiag.org/author.html#person" }
         },
@@ -64,10 +64,10 @@
           "@id": "https://www.nfsdiag.org/#software",
           "name": "nfsdiag",
           "url": "https://www.nfsdiag.org/",
-          "description": "nfsdiag is a command-line NFS diagnostic tool written in C. It tests NFS servers from the client side, identifying network, RPC, protocol, permission, and performance issues across multiple exports.",
+          "description": "nfsdiag is a command-line NFS diagnostic tool written in C. The client namespace tests NFS servers from the client side (network, RPC, protocol, permission, and performance issues); the server namespace runs on the NFS server itself and audits its configuration.",
           "applicationCategory": "DeveloperApplication",
           "operatingSystem": "Linux",
-          "softwareVersion": "0.13.0",
+          "softwareVersion": "0.22.0",
           "license": "https://opensource.org/license/mit",
           "isAccessibleForFree": true,
           "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
@@ -134,10 +134,17 @@
           <span class="wm">nfs<span class="wm__diag">diag</span></span>
         </a>
         <nav class="nav__links" aria-label="primary">
+          <a href="#modes">modes</a>
           <a href="#install">install</a>
           <a href="#checks" class="nav__hide-sm">checks</a>
           <a href="#usage">usage</a>
-          <a href="docs.html">docs</a>
+          <details class="nav__drop">
+            <summary>docs</summary>
+            <div class="nav__drop-menu">
+              <a href="docs.html">client</a>
+              <a href="docs-server.html">server</a>
+            </div>
+          </details>
           <a href="author.html" class="nav__hide-sm">author</a>
           <span class="nav__sep nav__hide-sm">│</span>
           <button
@@ -166,39 +173,56 @@
       </div>
 
       <!-- ── manpage hero (NAME / SYNOPSIS / DESCRIPTION) ───────────── -->
-      <section class="manpage">
+      <section class="manpage manpage--hero">
+        <div class="manpage__text">
         <h2>NAME</h2>
         <p class="desc">
-          <strong>nfsdiag</strong> — diagnose NFS servers from the client side.
+          <strong>nfsdiag</strong> — diagnose NFS from both sides of the wire.
         </p>
 
         <h2>SYNOPSIS</h2>
         <p class="opts">
-          <strong>nfsdiag</strong>
+          <strong>nfsdiag client</strong>
           <span class="arg">[OPTIONS]</span>
           <span class="arg">&lt;server-ip-or-hostname&gt;</span>
+          <br />
+          <strong>nfsdiag server</strong>
+          <span class="arg">[OPTIONS]</span>
+          <br />
+          <strong>nfsdiag diff</strong>
+          <span class="arg">&lt;before.json&gt;</span>
+          <span class="arg">&lt;after.json&gt;</span>
         </p>
 
         <h2>DESCRIPTION</h2>
         <p>
-          Walks the NFS stack from the wire up: TCP reachability, rpcbind, NFS
+          <code>client</code> tests an NFS server from a client machine. It
+          walks the stack from the wire up: TCP reachability, rpcbind, NFS
           v2/v3/v4/v4.1/v4.2 probes, mountd, exports, mount cascade,
           permissions, root squash, ACLs, locking, stale handles, performance.
         </p>
         <p>
-          One IP, one command. Compact text by default. JSON and standalone
-          HTML when you need it. Safe by default — validated inputs, trusted
-          helper execution, automatic mount namespace, <code>O_NOFOLLOW</code>
-          reports, and opt-in dangerous probes.
+          <code>server</code> runs on the NFS server itself and audits its
+          configuration, starting with the exports file: syntax errors,
+          exports without a client list, <code>no_root_squash</code>,
+          <code>insecure</code>, world-writable wildcards.
+        </p>
+        <p>
+          Both modes share the report engine — compact text by default, JSON
+          and standalone HTML when you need it — and the same exit codes. Safe
+          by default: validated inputs, trusted helper execution, automatic
+          mount namespace, <code>O_NOFOLLOW</code> reports, and opt-in
+          dangerous probes.
         </p>
         <p>
           Written in C99 against <code>libtirpc</code>. MIT.
-          Current version: <strong>0.13.0</strong>.
+          Current version: <strong>0.22.0</strong>.
         </p>
         <p class="byline">
           Created by Leandro Ferreira — see more on the
           <a href="author.html">author</a> page.
         </p>
+        </div>
 
         <!-- ── terminal mock ───────────────────────────────────────── -->
         <div class="terminal" role="img" aria-label="example nfsdiag output">
@@ -209,8 +233,8 @@
             <div class="terminal__title">nfsdiag — 192.168.1.10</div>
             <div style="width: 50px"></div>
           </div>
-<pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag 192.168.1.10
-nfsdiag 0.13.0: 192.168.1.10
+<pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag client 192.168.1.10
+nfsdiag 0.22.0: 192.168.1.10
 <span class="ok">[OK]</span> rpcbind on tcp/111
 <span class="ok">[OK]</span> nfs on tcp/2049
 <span class="ok">[OK]</span> 1 export(s) discovered
@@ -220,6 +244,86 @@ nfsdiag 0.13.0: 192.168.1.10
 summary: <span class="ok">ok=13</span> <span class="dim">warn=0  fail=0</span>
 <span class="prompt">$</span> <span class="cursor"></span></pre>
         </div>
+      </section>
+
+      <!-- ── modes ──────────────────────────────────────────────────── -->
+      <section class="section" id="modes">
+        <h2 class="section__title">
+          <a class="section__hash" href="#modes">#</a>
+          two modes
+          <svg
+            class="section__pulse"
+            viewBox="0 0 200 14"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 0 7 H 60 L 70 4 L 84 11 L 100 2 L 116 12 L 126 7 H 200"
+              stroke="currentColor"
+              stroke-width="1"
+              fill="none"
+              stroke-linejoin="round"
+              stroke-linecap="round"
+            />
+          </svg>
+        </h2>
+
+        <p class="lede">
+          NFS problems have two possible homes: the path between the machines,
+          or the server's own configuration. nfsdiag covers both with one
+          binary.
+        </p>
+
+        <table class="checks">
+          <tbody>
+            <tr>
+              <th>client</th>
+              <td>
+                runs on any machine that can reach the server · discovers and
+                mounts the exports, then exercises them: reads, writes, locks,
+                ACLs, identity simulation, benchmarks · answers "what does
+                this server look like from where my users are?" ·
+                <a href="docs.html">client documentation</a>
+              </td>
+            </tr>
+            <tr>
+              <th>server</th>
+              <td>
+                runs on the NFS server itself, no second machine involved ·
+                audits the configuration, starting with
+                <code class="inline">/etc/exports</code>: syntax errors,
+                missing client lists, <code class="inline">no_root_squash</code>,
+                <code class="inline">insecure</code> · answers "is this server
+                configured the way I think it is?" ·
+                <a href="docs-server.html">server documentation</a>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="terminal" role="img" aria-label="example nfsdiag server output">
+          <div class="terminal__head">
+            <div class="terminal__lights">
+              <span></span><span></span><span></span>
+            </div>
+            <div class="terminal__title">nfsdiag server — exports audit</div>
+            <div style="width: 50px"></div>
+          </div>
+<pre class="terminal__body"><span class="prompt">$</span> sudo nfsdiag server --exports-audit
+nfsdiag 0.22.0: exports audit of /etc/exports
+<span class="warn">[WARN]</span> exports /srv/data: '*(rw,no_root_squash)': no_root_squash lets remote root act as local root
+summary: <span class="dim">ok=0</span> <span class="warn">warn=1</span> <span class="dim">fail=0</span>
+<span class="prompt">$</span> <span class="cursor"></span></pre>
+        </div>
+
+        <p class="lede" style="margin-top: 8px;">
+          The <code>server</code> namespace runs on the NFS server itself and
+          covers the whole
+          <a href="docs-server.html#checks">checks</a> — exports audit,
+          security, live state, a Prometheus exporter, eBPF latency profiling,
+          HA and nfs-ganesha checks — up to paired mode, correlating a client
+          run and a server run to tell which side of the wire the problem is on.
+        </p>
       </section>
 
       <!-- ── install ────────────────────────────────────────────────── -->
@@ -272,7 +376,7 @@ sudo make install</code></pre>
           <pre><code class="block"><span class="code__d"># OCI image — no build required</span>
 docker run --rm --privileged \
   ghcr.io/lsferreira42/nfsdiag \
-  192.168.1.10</code></pre>
+  client 192.168.1.10</code></pre>
         </div>
 
         <p class="lede" style="margin-top: 8px;">
@@ -422,45 +526,53 @@ docker run --rm --privileged \
 
         <div class="recipes">
           <div>
-            <p class="recipe__desc">full diagnostic — needs root for mount</p>
-<pre><code class="block">sudo nfsdiag 192.168.1.10</code></pre>
+            <p class="recipe__desc">client: full diagnostic — needs root for mount</p>
+<pre><code class="block">sudo nfsdiag client 192.168.1.10</code></pre>
           </div>
           <div>
-            <p class="recipe__desc">network and RPC only — no mount, no root</p>
-<pre><code class="block">nfsdiag --no-mount 192.168.1.10</code></pre>
+            <p class="recipe__desc">client: network and RPC only — no mount, no root</p>
+<pre><code class="block">nfsdiag client --no-mount 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">simulate a specific identity (UID/GID + groups)</p>
-<pre><code class="block">sudo nfsdiag --uid 1000 --gid 1000 --groups 10,20 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --uid 1000 --gid 1000 --groups 10,20 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">machine-readable report for CI / scripts</p>
-<pre><code class="block">nfsdiag --json=report.json 192.168.1.10</code></pre>
+<pre><code class="block">nfsdiag client --json=report.json 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">production audit — read-only, dry run, rate-limited</p>
-<pre><code class="block">nfsdiag --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
+<pre><code class="block">nfsdiag client --dry-run --read-only --delay-ms 500 prod-nfs.example.com</code></pre>
           </div>
           <div>
             <p class="recipe__desc">shareable HTML for a support ticket</p>
-<pre><code class="block">sudo nfsdiag --html=report.html 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --html=report.html 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">continuous monitoring — re-run every 60 s</p>
-<pre><code class="block">sudo nfsdiag --watch 60 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --watch 60 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">stream failures with jq</p>
-<pre><code class="block">sudo nfsdiag --output-format=ndjson \
+<pre><code class="block">sudo nfsdiag client --output-format=ndjson \
   192.168.1.10 | jq 'select(.level=="fail")'</code></pre>
           </div>
           <div>
             <p class="recipe__desc">safe preset — read-only diagnostics</p>
-<pre><code class="block">sudo nfsdiag --profile safe 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --profile safe 192.168.1.10</code></pre>
           </div>
           <div>
             <p class="recipe__desc">evidence bundle for tickets</p>
-<pre><code class="block">sudo nfsdiag --output-dir ./nfsdiag-report 192.168.1.10</code></pre>
+<pre><code class="block">sudo nfsdiag client --output-dir ./nfsdiag-report 192.168.1.10</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">server: audit /etc/exports on the NFS server</p>
+<pre><code class="block">sudo nfsdiag server --exports-audit</code></pre>
+          </div>
+          <div>
+            <p class="recipe__desc">server: audit a staged exports file before applying</p>
+<pre><code class="block">nfsdiag server --exports-audit --exports-file /tmp/exports.new</code></pre>
           </div>
           <div>
             <p class="recipe__desc">compare before / after reports</p>
@@ -468,7 +580,7 @@ docker run --rm --privileged \
           </div>
           <div>
             <p class="recipe__desc">audit a fleet from a hosts file</p>
-<pre><code class="block">sudo nfsdiag \
+<pre><code class="block">sudo nfsdiag client \
   --hosts-file /etc/nfs-servers.txt \
   --json=audit.json</code></pre>
           </div>
@@ -503,18 +615,22 @@ docker run --rm --privileged \
         </h2>
 
         <p class="lede">
-          The full reference covers every CLI flag, all 14 Docker test fixtures,
-          all output formats (text, table, NDJSON, Prometheus, JSON, HTML),
-          evidence bundles, report diffing, packaging (deb/rpm/apk/OCI/Homebrew/AUR/Nix),
-          security notes, architecture overview, limitations, and the changelog.
+          The documentation is split by namespace. The client reference covers
+          every CLI flag, all 14 Docker test fixtures, all output formats
+          (text, table, NDJSON, Prometheus, JSON, HTML), evidence bundles,
+          report diffing, packaging (deb/rpm/apk/OCI/Homebrew/AUR/Nix),
+          security notes, architecture, limitations, and the changelog. The
+          server reference covers the server-side checks.
         </p>
 
-        <a href="docs.html" class="cta-link">→ open full documentation</a>
+        <a href="docs.html" class="cta-link">→ client documentation</a>
+        <br />
+        <a href="docs-server.html" class="cta-link">→ server documentation</a>
       </section>
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.13.0</strong></span>
+      <span>nfsdiag <strong>v0.22.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>
@@ -524,7 +640,9 @@ docker run --rm --privileged \
       <span class="foot__spacer"></span>
       <a href="https://www.nfsdiag.org" target="_blank" rel="noopener">nfsdiag.org</a>
       <span class="foot__sep">·</span>
-      <a href="docs.html">docs</a>
+      <a href="docs.html">client docs</a>
+      <span class="foot__sep">·</span>
+      <a href="docs-server.html">server docs</a>
       <span class="foot__sep">·</span>
       <a href="author.html">author</a>
       <span class="foot__sep">·</span>

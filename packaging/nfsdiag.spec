@@ -1,5 +1,5 @@
 Name:           nfsdiag
-Version:        0.13.0
+Version:        0.22.0
 Release:        1%{?dist}
 Summary:        NFS diagnostic tool
 
@@ -37,6 +37,24 @@ install -D -m 644 %{srcdir}/LICENSE %{buildroot}%{_defaultlicensedir}/nfsdiag/LI
 %license %{_defaultlicensedir}/nfsdiag/LICENSE
 
 %changelog
+* Tue Jul 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.22.0-1
+- See CHANGELOG.md for details
+* Tue Jul 07 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.21.0-1
+- See CHANGELOG.md for details
+* Mon Jul 06 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.20.0-1
+- See CHANGELOG.md for details
+* Mon Jul 06 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.19.0-1
+- See CHANGELOG.md for details
+* Mon Jul 06 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.18.0-1
+- See CHANGELOG.md for details
+* Mon Jul 06 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.17.0-1
+- See CHANGELOG.md for details
+* Mon Jul 06 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.16.0-1
+- See CHANGELOG.md for details
+* Fri Jul 03 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.15.0-1
+- See CHANGELOG.md for details
+* Fri Jul 03 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.14.0-1
+- See CHANGELOG.md for details
 * Thu Jul 02 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.13.0-1
 - See CHANGELOG.md for details
 * Sun Jun 28 2026 Leandro Ferreira <leandrodsferreira@gmail.com> - 0.12.0-1

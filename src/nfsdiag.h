@@ -1,7 +1,7 @@
 #ifndef NFSDIAG_H
 #define NFSDIAG_H
 
-#define NFSDIAG_VERSION "0.13.0"
+#define NFSDIAG_VERSION "0.22.0"
 
 #include <arpa/inet.h>
 #include <dirent.h>
@@ -133,6 +133,9 @@ struct options {
     int parallel;                  /* >1 = concurrent export workers           */
     int listen_port;               /* >0 = serve Prometheus metrics over HTTP  */
     char listen_addr[256];         /* bind address; empty = 127.0.0.1          */
+    char peer_host[256];           /* --peer HOST[:PORT]; empty = disabled     */
+    int  peer_port;
+    int duration;                  /* sampling window for perf checks (seconds) */
     int diff_baseline;             /* compare with and update saved baseline   */
     size_t bench_bytes;
     gid_t supplemental_groups[MAX_SUPP_GROUPS];
@@ -274,15 +277,67 @@ int client_main(int argc, char **argv);
 int server_main(int argc, char **argv);
 int diff_reports(const char *a, const char *b);
 
+/* client.c helpers shared with the server namespace */
+void remember_argv(int argc, char **argv);
+int  prepare_output_dir(const char *host);
+void write_output_dir_evidence(const char *host);
+
 /* ---- server.c (`nfsdiag server` namespace) ---- */
 
 struct server_options {
     int exports_audit;
     const char *exports_file;
+    const char *root;              /* prefix for /proc and /etc reads */
+    int daemons;
+    int version_matrix;
+    int ports_firewall;
+    int storage_health;
+    int sysctl_advisor;
+    int security_audit;
+    int idmap_check;
+    int krb5_server;
+    int acl_check;
+    int squash_check;
+    int audit_trail;
+    int rpc_stats;
+    int locks;
+    int clients;
+    int client_states;
+    int memory_pressure;
+    int log_intel;
+    int rmtab_audit;
+    int ebpf_selftest;
+    int latency_profile;
+    int per_client_trace;
+    int backend_bench;
+    int capture;
+    int ha_check;
+    int ganesha_check;
     int verbose;
     int quiet;
 };
 extern struct server_options server_opt;
+
+/* Emit Prometheus gauges for the local NFS server (reads /proc, honors --root). */
+void server_metrics_emit(FILE *f, const char *host);
+char *server_prometheus_snapshot(const char *host);
+
+/* ---- serve.c (shared HTTP metrics listener) ---- */
+int run_metrics_listener(const char *host, char *(*refresh)(const char *host));
+
+/* eBPF self-test (defined in src/ebpf.c only when built with --enable-ebpf). */
+int nfsdiag_ebpf_selftest(void);
+
+/* Attach nfsd kprobes, sample for duration_s, then report latency histograms
+ * (want_hist) and/or per-client stats (want_client). Only in --enable-ebpf builds. */
+int nfsdiag_ebpf_latency_run(int duration_s, int want_hist, int want_client);
+
+/* Write+read a temp file in dir to measure the raw storage ceiling.
+ * engine: NULL/"internal" = built-in loop; "fio" = fio with --direct=1.
+ * Returns 0 (MiB/s written to write_mibs and read_mibs; -1.0 each for fio),
+ * -1 on error. */
+int storage_benchmark(const char *dir, size_t bytes, const char *engine,
+                      double *write_mibs, double *read_mibs, char *err, size_t errsz);
 
 /* ---- server_exports.c (pure helpers for --exports-audit) ---- */
 
@@ -299,6 +354,130 @@ int exports_parse_line(const char *line, int lineno, struct export_line *out,
 /* Inspect one "host(options)" token. Returns 0 = fine, 1 = risky
  * (human-readable reason in why), -1 = malformed token. */
 int exports_client_risk(const char *token, char *why, size_t whysz);
+
+/* 1 if any client token of this export carries an explicit fsid= option. */
+int export_line_has_fsid(const struct export_line *e);
+
+/* Deep security scan across parsed exports entries (--security-audit).
+ * level: 0 = info, 1 = warn. Returns the number of findings written. */
+struct export_finding { int level; char msg[300]; };
+int exports_security_scan(const struct export_line *entries, int n_entries,
+                          struct export_finding *out, int max);
+
+/* ---- server_checks.c (pure analyzers for server checks) ---- */
+
+struct nfsd_versions { int v3, v4, v4_1, v4_2; };   /* 1 on, 0 off, -1 absent */
+/* Parse /proc/fs/nfsd/versions ("-2 +3 +4 +4.1 -4.2"). 0 = ok, -1 = unparseable. */
+int parse_nfsd_versions(const char *buf, struct nfsd_versions *out);
+
+struct nfsd_th_stats { long threads; double busy_all; int valid; };
+/* Parse the "th" line of /proc/net/rpc/nfsd. busy_all = seconds all threads
+ * were busy (the histogram's last bucket). 0 = ok, -1 = no th line. */
+int parse_nfsd_th_line(const char *buf, struct nfsd_th_stats *out);
+
+/* 1 when a /proc/<pid>/comm buffer matches name (trailing newline ignored;
+ * comm is truncated by the kernel to 15 chars, so compare up to that). */
+int comm_matches(const char *comm, const char *name);
+
+struct idmapd_conf {
+    int  has_domain;
+    char domain[256];
+    char nobody_user[64];
+    char nobody_group[64];
+    char method[128];
+};
+/* Parse idmapd.conf-style INI content. Always returns 0 (missing keys
+ * simply stay empty); sections are ignored, keys are matched globally. */
+int parse_idmapd_conf(const char *buf, struct idmapd_conf *out);
+
+/* Extract default_realm from krb5.conf content. 0 = found, -1 = absent. */
+int krb5_conf_default_realm(const char *buf, char *out, size_t sz);
+
+/* rpc.c: local rpcbind dump, exported for the server namespace */
+int rpcb_dump_services(const char *host, struct rpc_services *svc);
+
+/* 1 if a LISTEN socket (st 0A) on local port `port` exists in a
+ * /proc/net/tcp[6]-format stream; 0 if not; -1 on read error. */
+int tcp_table_has_listener(FILE *f, unsigned port);
+
+/* Map statfs.f_type to a name ("ext4", "xfs", ...); "unknown" if unmapped. */
+const char *fs_type_name(long f_type);
+/* 1 = unsuitable to export (reason in why), 0 = fine. */
+int fs_type_unsuitable(long f_type, char *why, size_t whysz);
+/* 0 = ok, 1 = warn (>90% used), -1 = unknown (total == 0). */
+int usage_severity(unsigned long long total, unsigned long long freev);
+/* 1 when the filesystem type is known to support POSIX ACLs. */
+int fs_type_acl_capable(long f_type);
+
+/* ---- live-state parsers (all pure, /proc formats) ---- */
+
+/* Reply cache line of /proc/net/rpc/nfsd: "rc <hits> <misses> <nocache>". */
+struct nfsd_rc { long hits, misses, nocache; int valid; };
+int parse_nfsd_rc_line(const char *buf, struct nfsd_rc *out);
+
+/* RPC line of /proc/net/rpc/nfsd: "rpc <calls> <badcalls> ...". */
+struct nfsd_rpc { long calls, badcalls; int valid; };
+int parse_nfsd_rpc_line(const char *buf, struct nfsd_rpc *out);
+
+/* Count /proc/locks entries by type (2nd column). Returns total. */
+int count_proc_locks_buf(const char *buf, int *posix, int *flock, int *lease);
+
+/* Count ESTABLISHED sockets (st 01) on local `port` in a /proc/net/tcp table. */
+int tcp_table_count_established(FILE *f, unsigned port);
+
+/* One /proc/fs/nfsd/clients/<id>/info file. */
+struct nfsd_client_info { char address[128]; int minor_version; int callback_up; };
+int parse_nfsd_client_info(const char *buf, struct nfsd_client_info *out);
+
+/* Count states in a /proc/fs/nfsd/clients/<id>/states file. Returns total. */
+int count_nfsd_client_states(const char *buf, int *opens, int *locks,
+                             int *delegs, int *layouts);
+
+/* ---- observability parsers (pure) ---- */
+
+struct meminfo_stats { long memtotal_kb, memavailable_kb, slab_kb, sreclaimable_kb; int valid; };
+/* Parse /proc/meminfo lines "Key:  <n> kB". 0 = ok, -1 = MemTotal absent. */
+int parse_meminfo_buf(const char *buf, struct meminfo_stats *out);
+
+struct rmtab_stats { int entries, hosts, stale, duplicates; };
+/* Parse rmtab lines "host:/export:count". count 0 = stale. Distinct hosts and
+ * duplicate host:path lines counted up to an internal cap. Returns entries. */
+int parse_rmtab_buf(const char *buf, struct rmtab_stats *out);
+
+struct log_finding { const char *title; const char *advice; int severity; int count; };
+/* Scan log text (journal/messages) for known NFS server problem signatures.
+ * severity: 0 = info, 1 = warn; count = matching lines. Returns findings (0..max). */
+int log_intel_scan(const char *buf, struct log_finding *out, int max);
+
+/* ---- perf helpers (pure) ---- */
+/* Latency histogram bucket for a duration in ns: 0 for <1us, else
+ * floor(log2(microseconds))+1, capped at 31. Mirrors the BPF side. */
+int hist_log2_bucket(unsigned long long ns);
+/* Format a client IP (AF_INET=2 uses ip[0..3], AF_INET6=10 uses ip[0..15]). */
+void fmt_client_ip(const unsigned char ip[16], int family, char *out, size_t sz);
+
+/* ---- HA / ganesha helpers (pure) ---- */
+/* 1 if /proc/mounts (mounts_buf) has a mount whose mountpoint is exactly path. */
+int path_is_on_own_mount(const char *mounts_buf, const char *path);
+
+struct ganesha_conf { int has_conf; int export_count; char fsals[8][32]; int fsal_count; };
+/* Parse ganesha.conf: count EXPORT{} blocks and FSAL names. Returns export_count. */
+int parse_ganesha_conf(const char *buf, struct ganesha_conf *out);
+
+/* ---- paired-mode helpers (pure) ---- */
+struct peer_server { double snapshot_unixtime, rpc_calls, rpc_badcalls, drc_hits,
+                     drc_misses, drc_nocache, tcp_established, nfsd_threads; int valid; };
+struct peer_client_findings { int fail; int estale; double min_write_mibs; double min_read_mibs; };
+/* Extract a Prometheus gauge value ("name{...} VALUE"). 0 = found, -1 = absent. */
+int parse_prometheus_gauge(const char *buf, const char *name, double *out);
+/* Headline verdict from client findings + two server snapshots. Returns level
+ * (0 = ok/info, 1 = warn); message written to msg. */
+int peer_verdict(const struct peer_client_findings *c, const struct peer_server *base,
+                 const struct peer_server *final, char *msg, size_t msgsz);
+
+/* ---- peer.c (paired-mode HTTP client) ---- */
+int peer_fetch_metrics(const char *host, int port, char *buf, size_t sz);
+void peer_parse_server(const char *buf, struct peer_server *out);
 
 /* ---- report.c ---- */
 
@@ -423,6 +602,12 @@ int validate_mount_options(const char *opts, int allow_risky,
                            char *reason, size_t reason_sz);
 int parse_listen_arg(const char *arg, char *addr_out, size_t addr_sz,
                      int *port_out, char *reason, size_t reason_sz);
+
+#define PEER_DEFAULT_PORT 9100
+#define PEER_SLOW_MIBS    20.0
+#define PEER_SKEW_WARN    30.0
+/* Parse "HOST", "HOST:PORT" or "[v6]:PORT" into host/port (port defaults). 0/-1. */
+int parse_peer_arg(const char *arg, char *host, size_t hostsz, int *port, int default_port);
 void warn_risky_mount_options(const char *opts);
 const char *event_category_for_message(const char *level, const char *message);
 void event_check_id(char *dst, size_t dst_sz, const char *level,

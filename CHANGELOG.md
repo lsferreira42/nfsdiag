@@ -8,6 +8,148 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.0] - 2026-07-07
+
+### Added
+- Paired mode: `nfsdiag client --peer HOST[:PORT]` correlates the client's own
+  diagnostic with the server's state, fetched from a peer `nfsdiag server
+  --listen` exporter (default port 9100). The client samples the server metrics
+  before and after its run and prints a `paired:` verdict — whether the server,
+  the network, or the client was the bottleneck — from the ops the server
+  actually served and its bad-call/reply-cache behaviour during the test.
+- The server metrics exporter now includes a `nfsdiag_server_snapshot_unixtime`
+  gauge so the client can gauge the freshness of the correlation.
+
+## [0.21.0] - 2026-07-07
+
+### Added
+- HA and ecosystem checks in the server namespace: `--ha-check` validates a
+  high-availability setup (exports missing an explicit `fsid=`, whether
+  `/var/lib/nfs` is on shared storage, NFSv4 grace/recovery, and pacemaker NFS
+  resources) and `--ganesha-check` detects nfs-ganesha (userland) versus the
+  kernel nfsd, parses `ganesha.conf` (EXPORT blocks and FSALs), and detects a
+  container/Kubernetes environment. Both are opt-in and not part of `--all`.
+
+## [0.20.0] - 2026-07-06
+
+### Added
+- Performance checks in the server namespace: `--latency-profile` and
+  `--per-client-trace` (eBPF/libbpf; need an `--enable-ebpf` build and root)
+  sample nfsd read/write/commit latency via kprobes on the actual v3 and v4
+  hot paths (`nfsd_read`/`nfsd_splice_read`/`nfsd_iter_read`,
+  `nfsd_write`/`nfsd_vfs_write`, `nfsd_commit`), producing a per-operation
+  latency histogram and per-client operation/latency stats (client address
+  read from the RPC request via CO-RE). `--backend-bench` benchmarks the
+  storage under each export (raw disk ceiling) to separate storage from
+  NFS/network bottlenecks. `--capture` captures NFS traffic on port 2049 with
+  `tcpdump` (and summarizes it with `tshark` when present). `--duration SEC`
+  (default 10) sets the sampling window. These four are intrusive and are not
+  part of `--all`.
+
+## [0.19.0] - 2026-07-06
+
+### Added
+- An autoconf build: `./configure [--enable-ebpf|--disable-ebpf] [--prefix=DIR]
+  && make && make install`. `configure` writes a `config.mk` that the Makefile
+  includes; the `--enable-ebpf` toggle builds the libbpf/CO-RE foundation
+  (compiles `src/bpf/nfsdiag.bpf.c` with clang, generates a skeleton with
+  bpftool, links libbpf) and defines `NFSDIAG_ENABLE_EBPF`. A hidden
+  `nfsdiag server --ebpf-selftest` loads the embedded BPF object to verify the
+  toolchain end to end.
+
+### Changed
+- Plain `make` (without `./configure`) still builds exactly as before, with
+  eBPF compiled out, so packaging and CI need no changes.
+
+## [0.18.0] - 2026-07-06
+
+### Added
+- Server-side metrics and live modes: `nfsdiag server --output-format
+  prometheus` prints a one-shot snapshot of server gauges, `nfsdiag server
+  --listen [ADDR:]PORT` serves them over HTTP (refreshing every `--watch`
+  seconds, default 60, bound to `127.0.0.1` unless an address is given), and
+  `nfsdiag server --watch SEC` re-runs the selected checks every SEC seconds.
+  The exposed gauges are `nfsdiag_server_nfsd_threads`,
+  `nfsdiag_server_nfsd_threads_busy_seconds`, `nfsdiag_server_drc_hits`,
+  `nfsdiag_server_drc_misses`, `nfsdiag_server_drc_nocache`,
+  `nfsdiag_server_rpc_calls`, `nfsdiag_server_rpc_badcalls`,
+  `nfsdiag_server_clients`, `nfsdiag_server_locks_held` and
+  `nfsdiag_server_tcp_established_2049`.
+
+### Changed
+- The HTTP metrics listener was extracted into `src/serve.c`
+  (`run_metrics_listener`) and is now shared by the client and server
+  exporters.
+
+## [0.17.0] - 2026-07-06
+
+### Added
+- Observability checks in the server namespace: `--log-intel` (scans the
+  systemd journal, or `/var/log/messages` under `--root`, for known
+  nfsd/mountd/statd/kernel problem signatures and prints each match with a
+  suggested fix), `--rmtab-audit` (stale `/var/lib/nfs/rmtab` entries with
+  count 0 and orphaned NSM `sm/` monitors that cause `sm-notify` storms at
+  boot), and `--memory-pressure` (MemAvailable against the reply cache and
+  dentry/inode caches, plus `vm.*` tunables such as `vfs_cache_pressure`,
+  `swappiness` and `dirty_ratio`). All three are included in `--all` and
+  honor `--root` for offline analysis of an extracted sosreport.
+
+## [0.16.0] - 2026-07-06
+
+### Added
+- Live-state checks in the server namespace: `--rpc-stats` (reply-cache hit
+  rate, bad RPC calls and packet/byte traffic from `/proc/net/rpc/nfsd`),
+  `--locks` (held locks by type from `/proc/locks`, NFSv4 lease/grace times,
+  and NLM/NSM registration), `--clients` (connected NFSv4 clients from
+  `/proc/fs/nfsd/clients/` with minor version and callback state, plus
+  established TCP connections on 2049), and `--client-states` (opens, locks,
+  delegations and layouts held per client, flagging clients that leak file
+  handles or hoard delegations). All four are included in `--all` and honor
+  `--root` for offline analysis of an extracted sosreport.
+
+## [0.15.0] - 2026-07-03
+
+### Added
+- Security checks in the server namespace: `--security-audit` (deep exports
+  analysis beyond syntax: `subtree_check`, `insecure_locks`, `all_squash`
+  without `anonuid`, `sec=sys`, duplicate paths, nested exports without
+  `crossmnt`), `--idmap-check` (idmapd.conf domain vs the host's DNS domain,
+  Nobody-User mapping), `--krb5-server` (keytab presence/permissions, `nfs/`
+  principal, default realm, gss daemons, NTP sync), and `--acl-check`
+  (POSIX ACL support under each export via a non-destructive xattr probe).
+  All four are included in `--all`.
+- `--squash-check`: mounts each export from localhost, creates a file as
+  root and reports the effective identity mapping (`no_root_squash`, squash
+  to nobody, or anonuid). Intrusive by design, so it is not part of `--all`
+  and requires root.
+- `--audit-trail`: with `--output-dir`, captures copies of the exports file,
+  `nfs.conf`, `idmapd.conf` and `krb5.conf` plus a `CONFIG.SHA256SUMS`
+  manifest for incident evidence.
+
+## [0.14.0] - 2026-07-03
+
+### Added
+- Five foundation checks in the server namespace: `--daemons` (kernel nfsd,
+  rpcbind, mountd, statd, idmapd, gss daemons and rpcbind registrations),
+  `--ports-firewall` (TCP listeners on 2049/111, dynamic ports, best-effort
+  firewalld/nftables rule check), `--storage-health` (space, inodes and
+  filesystem type under each export, warning about tmpfs/overlayfs/NFS
+  re-export), `--version-matrix` (enabled NFS versions, lease/grace times,
+  block size) and `--sysctl-advisor` (nfsd thread starvation and network
+  buffer tunables, with recommendations). `--all` runs every check.
+- `nfsdiag server --root DIR` reads `/proc` and `/etc` under DIR — an
+  extracted sosreport, for example. Checks that need the live system are
+  skipped with an explanation.
+- The server namespace now supports the shared output flags: `--json`,
+  `--html`, `--output-format` and `--output-dir` (with evidence bundle and
+  checksums), reusing the same report engine as the client.
+
+### Changed
+- `nfsdiag server` runs through the same report pipeline as the client:
+  unified banner (`nfsdiag VERSION: hostname`), summary line and structured
+  reports. OK/INFO lines print by default in server mode since the state
+  they carry is the report itself; `--quiet` still silences everything.
+
 ## [0.13.0] - 2026-07-02
 
 ### Added
@@ -18,8 +160,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - First server-side check: `nfsdiag server --exports-audit` parses the exports
   file (`--exports-file FILE`, default `/etc/exports`) and flags syntax
   errors, exports without a client list, and risky options such as
-  `no_root_squash`, `insecure`, and read-write exports to any host. The
-  server-side feature roadmap lives in `features_server.md`.
+  `no_root_squash`, `insecure`, and read-write exports to any host.
 - JSON reports carry a new optional `mode` field (`"client"` or `"server"`);
   the schema accepts it without requiring it, so existing consumers keep
   validating.

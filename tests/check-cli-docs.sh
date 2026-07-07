@@ -9,8 +9,10 @@ set -eu
 NFS_DIAG=${NFS_DIAG:-./nfsdiag}
 fail=0
 
-opts=$( { "$NFS_DIAG" client --help; "$NFS_DIAG" server --help; } | grep -o -- '--[a-z0-9-]*' | sort -u)
-[ -n "$opts" ] || { echo "[FAIL] could not extract options from --help"; exit 1; }
+client_opts=$("$NFS_DIAG" client --help | grep -o -- '--[a-z0-9-]*' | sort -u)
+server_opts=$("$NFS_DIAG" server --help | grep -o -- '--[a-z0-9-]*' | sort -u)
+[ -n "$client_opts" ] || { echo "[FAIL] could not extract options from client --help"; exit 1; }
+[ -n "$server_opts" ] || { echo "[FAIL] could not extract options from server --help"; exit 1; }
 
 check() {
     # check <surface> <file> <pattern>
@@ -23,20 +25,30 @@ check() {
     fi
 }
 
-for opt in $opts; do
-    bare=${opt#--}
-    # groff escapes hyphens: --mount-options -> \-\-mount\-options
-    groff=$(printf '%s' "$opt" | sed 's/-/\\-/g')
+# The website reference is split by namespace; README, man page and the
+# completions document both namespaces in one file.
+check_namespace() {
+    # check_namespace <opts> <website-file>
+    website_file=$2
+    for opt in $1; do
+        bare=${opt#--}
+        # groff escapes hyphens: --mount-options -> \-\-mount\-options
+        groff=$(printf '%s' "$opt" | sed 's/-/\\-/g')
 
-    check "README"          README.md                 "$opt"
-    check "man page"        docs/nfsdiag.8            "$groff"
-    check "website docs"    website/docs.html         "$opt"
-    check "bash completion" completions/nfsdiag.bash  "$opt"
-    check "zsh completion"  completions/nfsdiag.zsh   "$opt"
-    check "fish completion" completions/nfsdiag.fish  "-l $bare"
-done
+        check "README"          README.md                 "$opt"
+        check "man page"        docs/nfsdiag.8            "$groff"
+        check "website docs"    "$website_file"           "$opt"
+        check "bash completion" completions/nfsdiag.bash  "$opt"
+        check "zsh completion"  completions/nfsdiag.zsh   "$opt"
+        check "fish completion" completions/nfsdiag.fish  "-l $bare"
+    done
+}
+
+check_namespace "$client_opts" website/docs.html
+check_namespace "$server_opts" website/docs-server.html
 
 if [ "$fail" -eq 0 ]; then
-    echo "[OK] all $(printf '%s\n' "$opts" | wc -l) options documented in README, man, website, and completions"
+    total=$(printf '%s\n%s\n' "$client_opts" "$server_opts" | sort -u | wc -l)
+    echo "[OK] all $total options documented in README, man, website, and completions"
 fi
 exit "$fail"

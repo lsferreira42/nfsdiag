@@ -1,5 +1,7 @@
 SHELL := /bin/sh
 
+-include config.mk
+
 VERSION := $(shell cat VERSION)
 PKG_NAME := nfsdiag
 DEB_ARCH := $(shell dpkg --print-architecture 2>/dev/null || uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
@@ -22,11 +24,14 @@ SRCDIR := src
 SRCS := $(wildcard $(SRCDIR)/*.c)
 OBJS := $(SRCS:.c=.o)
 
+ifeq ($(strip $(TIRPC_CFLAGS)),)
 TIRPC_CFLAGS := $(shell $(PKG_CONFIG) --cflags libtirpc 2>/dev/null)
-TIRPC_LIBS := $(shell $(PKG_CONFIG) --libs libtirpc 2>/dev/null)
-
+endif
 ifeq ($(strip $(TIRPC_CFLAGS)),)
 TIRPC_CFLAGS := -I/usr/include/tirpc
+endif
+ifeq ($(strip $(TIRPC_LIBS)),)
+TIRPC_LIBS := $(shell $(PKG_CONFIG) --libs libtirpc 2>/dev/null)
 endif
 ifeq ($(strip $(TIRPC_LIBS)),)
 TIRPC_LIBS := -ltirpc
@@ -37,8 +42,8 @@ CFLAGS ?= -O2 -Wall -Wextra
 LDFLAGS ?=
 LDLIBS ?=
 
-CPPFLAGS += -D_GNU_SOURCE $(TIRPC_CFLAGS)
-LDLIBS += $(TIRPC_LIBS)
+CPPFLAGS += -D_GNU_SOURCE $(TIRPC_CFLAGS) $(EBPF_CPPFLAGS) $(BPF_CFLAGS)
+LDLIBS += $(TIRPC_LIBS) $(BPF_LIBS)
 
 DOCKER ?= docker
 DOCKERFILES := $(sort $(wildcard dockerfiles/Dockerfile.*))
@@ -66,9 +71,10 @@ CPPCHECK_FLAGS := -q --enable=all --inconclusive --std=c11 --library=posix \
 	--suppress=staticFunction \
 	--suppress=readdirCalled \
 	--suppress=unmatchedSuppression \
+	-i src/bpf -i src/ebpf.c -i src/ebpf_latency.c \
 	-D_GNU_SOURCE $(TIRPC_CFLAGS)
 
-.PHONY: all clean distclean rebuild strict compile-commands check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
+.PHONY: all clean distclean rebuild strict compile-commands check test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands check-server check-website check-signals shellcheck cppcheck sbom help install uninstall coverage docker-list docker-build-all test-fixtures test-fixtures-list test-fixture-% $(DOCKERFILES:dockerfiles/Dockerfile.%=docker-build-%) deb rpm apk binary-dist packages packages-best-effort release release-check update-release-checksums bump-packaging bump-version-bugfix bump-version-minor bump-version-major
 
 all: $(TARGET)
 
@@ -89,7 +95,7 @@ compile-commands:
 	bear -- $(MAKE) rebuild
 	@echo "compile_commands.json generated"
 
-check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands
+check: $(TARGET) test-unit check-versions check-json-schema check-output-golden check-cli-docs check-subcommands check-server
 	./$(TARGET) --help >/dev/null
 	./$(TARGET) client --self-test >/dev/null
 	@echo "self-check passed"
@@ -101,6 +107,10 @@ check-cli-docs: $(TARGET)
 # Subcommand dispatch: client/server/diff/help/version + deprecated alias.
 check-subcommands: $(TARGET)
 	sh tests/check-subcommands.sh
+
+# Server-namespace checks against synthetic fixtures (--root).
+check-server: $(TARGET)
+	sh tests/check-server.sh
 
 # Assert the four structured renderers agree on counters and are well-formed.
 check-output-golden: $(TARGET)
@@ -115,7 +125,7 @@ check-signals: $(TARGET)
 	sh tests/check-signals.sh
 
 test-unit:
-	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c src/util.c src/server_exports.c -o build-unit-tests $(LDLIBS)
+	$(CC) $(CPPFLAGS) $(CFLAGS) tests/unit-tests.c src/validation.c src/util.c src/server_exports.c src/server_checks.c -o build-unit-tests $(LDLIBS)
 	./build-unit-tests
 	rm -f build-unit-tests
 
@@ -181,6 +191,30 @@ uninstall:
 	rm -f "$(DESTDIR)$(DOCDIR)/nfsdiag.schema.json"
 	-rmdir "$(DESTDIR)$(DOCDIR)" 2>/dev/null || true
 
+# --------------------------------------------------------------------------
+# eBPF objects (only when ./configure --enable-ebpf set ENABLE_EBPF=1)
+# --------------------------------------------------------------------------
+ifeq ($(ENABLE_EBPF),1)
+BPF_DIR   := src/bpf
+VMLINUX   := $(BPF_DIR)/vmlinux.h
+BPF_SRC   := $(BPF_DIR)/nfsdiag.bpf.c
+BPF_OBJ   := $(BPF_DIR)/nfsdiag.bpf.o
+BPF_SKEL  := $(BPF_DIR)/nfsdiag.skel.h
+
+$(VMLINUX):
+	$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
+
+$(BPF_OBJ): $(BPF_SRC) $(VMLINUX)
+	$(CLANG) -g -O2 -target bpf -D__TARGET_ARCH_$(BPF_TARGET_ARCH) -I$(BPF_DIR) $(BPF_CFLAGS) -c $(BPF_SRC) -o $@
+
+$(BPF_SKEL): $(BPF_OBJ)
+	$(BPFTOOL) gen skeleton $(BPF_OBJ) name nfsdiag_bpf > $@
+
+# These TUs include the generated skeleton, so it must exist first.
+$(SRCDIR)/ebpf.o: $(BPF_SKEL)
+$(SRCDIR)/ebpf_latency.o: $(BPF_SKEL)
+endif
+
 # ---- Code coverage (gcov/lcov) ----
 coverage:
 	$(MAKE) "CFLAGS=-O0 -g --coverage" "LDFLAGS=--coverage" rebuild
@@ -191,10 +225,13 @@ coverage:
 
 clean:
 	rm -f $(TARGET) $(SRCDIR)/*.o build-unit-tests VERSION.tmp
+	rm -f $(SRCDIR)/bpf/*.bpf.o $(SRCDIR)/bpf/nfsdiag.skel.h
 	rm -rf build/
 
 distclean: clean
 	rm -rf .cache coverage-html coverage.info
+	rm -f config.mk config.log config.status $(SRCDIR)/bpf/vmlinux.h
+	rm -rf autom4te.cache
 	find src -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
 help:
@@ -393,9 +430,9 @@ bump-packaging:
 	sed -i "s/\"softwareVersion\": \"[^\"]*\"/\"softwareVersion\": \"$$ver\"/" website/index.html; \
 	sed -i "s|<lastmod>[^<]*</lastmod>|<lastmod>$$(date +%Y-%m-%d)</lastmod>|g" website/sitemap.xml; \
 	sed -i "s|Current version: <strong>[^<]*</strong>|Current version: <strong>$$ver</strong>|" website/index.html; \
-	sed -i "s|<strong>nfsdiag</strong> v[0-9][0-9.]*|<strong>nfsdiag</strong> v$$ver|" website/docs.html; \
-	sed -i "s/nfsdiag [0-9][0-9.]*: /nfsdiag $$ver: /g" website/index.html website/docs.html; \
-	sed -i "s|nfsdiag <strong>v[^<]*</strong>|nfsdiag <strong>v$$ver</strong>|g" website/index.html website/docs.html website/author.html; \
+	sed -i "s|<strong>nfsdiag</strong> v[0-9][0-9.]*|<strong>nfsdiag</strong> v$$ver|" website/docs.html website/docs-server.html; \
+	sed -i "s/nfsdiag [0-9][0-9.]*: /nfsdiag $$ver: /g" website/index.html website/docs.html website/docs-server.html; \
+	sed -i "s|nfsdiag <strong>v[^<]*</strong>|nfsdiag <strong>v$$ver</strong>|g" website/index.html website/docs.html website/docs-server.html website/author.html; \
 	sed -i "s|\(NFSDIAG_VERSION.*\)\"[0-9][^\"]*\"|\1\"$$ver\"|" website/docs.html; \
 	if ! grep -q -- "- $$ver-1\$$" packaging/nfsdiag.spec; then \
 		awk -v ver="$$ver" -v d="$$(LC_ALL=C date '+%a %b %d %Y')" \

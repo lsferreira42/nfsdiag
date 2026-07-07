@@ -320,3 +320,39 @@ const char *event_remediation_for(const char *category, const char *message) {
         return "Use dangerous filesystem probes only on disposable or explicitly approved exports.";
     return "";
 }
+
+int parse_peer_arg(const char *arg, char *host, size_t hostsz, int *port, int default_port) {
+    *port = default_port;
+    if (!arg || !*arg)
+        return -1;
+    if (arg[0] == '[') {                 /* [v6]:port */
+        const char *end = strchr(arg, ']');
+        if (!end) return -1;
+        size_t n = (size_t)(end - (arg + 1));
+        if (n == 0 || n + 1 > hostsz) return -1;
+        memcpy(host, arg + 1, n); host[n] = '\0';
+        if (end[1] == ':') {
+            unsigned long p;
+            if (parse_ulong_arg(end + 2, &p) != 0 || p == 0 || p > 65535) return -1;
+            *port = (int)p;
+        } else if (end[1] != '\0') {
+            return -1;
+        }
+        return 0;
+    }
+    int colons = 0;
+    for (const char *c = arg; *c; c++) if (*c == ':') colons++;
+    if (colons == 1) {                   /* host:port */
+        const char *colon = strchr(arg, ':');
+        size_t n = (size_t)(colon - arg);
+        if (n == 0 || n + 1 > hostsz) return -1;
+        memcpy(host, arg, n); host[n] = '\0';
+        unsigned long p;
+        if (parse_ulong_arg(colon + 1, &p) != 0 || p == 0 || p > 65535) return -1;
+        *port = (int)p;
+        return 0;
+    }
+    if (strlen(arg) + 1 > hostsz) return -1;   /* plain host or bare v6 literal */
+    snprintf(host, hostsz, "%s", arg);
+    return 0;
+}

@@ -325,11 +325,11 @@ static int apply_profile(const char *profile) {
     return 0;
 }
 
-static void remember_argv(int argc, char **argv) {
+void remember_argv(int argc, char **argv) {
     redact_argv(sanitized_argv, sizeof(sanitized_argv), argc, argv);
 }
 
-static int prepare_output_dir(const char *host) {
+int prepare_output_dir(const char *host) {
     if (!opt.output_dir) return 0;
     if (mkdir(opt.output_dir, 0700) != 0 && errno != EEXIST) {
         fprintf(stderr, "Error: cannot create output dir %s: %s\n", opt.output_dir, strerror(errno));
@@ -383,7 +383,7 @@ static FILE *fopen_private(const char *path) {
     return f;
 }
 
-static void write_output_dir_evidence(const char *host) {
+void write_output_dir_evidence(const char *host) {
     if (!opt.output_dir) return;
     FILE *f = fopen_private(output_dir_evidence_path);
     if (!f) return;
@@ -509,6 +509,7 @@ static void usage(void) {
     printf("                              and skip the default nosuid,nodev,noexec hardening\n");
     printf("      --profile NAME         quick, safe, full, performance, security, readonly\n");
     printf("      --hosts-file FILE      Read one host per line from FILE; run diagnostics for each\n");
+    printf("      --peer HOST[:PORT]     Correlate with a peer 'nfsdiag server --listen' (default port 9100)\n");
     printf("      --watch SEC            Re-run diagnostics every SEC seconds until interrupted\n");
     printf("      --on-fail-exec SCRIPT  Execute SCRIPT when any test fails (env: NFSDIAG_HOST, NFSDIAG_LEVEL)\n");
     printf("      --config FILE          Load options from FILE (key=value, one per line)\n");
@@ -1100,6 +1101,19 @@ static int run_diagnostics_for_host(const char *host) {
     struct rpc_stats rpc_before, rpc_after;
     capture_rpc_stats(&rpc_before);
 
+    struct peer_server peer_base;
+    int peer_base_ok = 0;
+    if (opt.peer_host[0]) {
+        static char peerbuf[131072];
+        if (peer_fetch_metrics(opt.peer_host, opt.peer_port, peerbuf, sizeof(peerbuf)) == 0) {
+            peer_parse_server(peerbuf, &peer_base);
+            peer_base_ok = 1;
+        } else {
+            report_warn("paired: cannot reach peer %s:%d; is 'nfsdiag server --listen' running?",
+                        opt.peer_host, opt.peer_port);
+        }
+    }
+
     if (opt.parallel > 1 && exports_found.count > 1 && !opt.dry_run) {
         run_exports_parallel(host, &exports_found);
     } else {
@@ -1168,6 +1182,44 @@ static int run_diagnostics_for_host(const char *host) {
     capture_rpc_stats(&rpc_after);
     report_rpc_stats_diff(&rpc_before, &rpc_after);
 
+    if (opt.peer_host[0] && peer_base_ok) {
+        static char peerbuf2[131072];
+        if (peer_fetch_metrics(opt.peer_host, opt.peer_port, peerbuf2, sizeof(peerbuf2)) == 0) {
+            struct peer_server peer_final;
+            peer_parse_server(peerbuf2, &peer_final);
+            struct peer_client_findings cf = { .fail = summary_fail, .estale = 0,
+                                               .min_write_mibs = -1, .min_read_mibs = -1 };
+            for (size_t i = 0; i < export_report_count; i++) {
+                const struct export_report *r = &export_reports[i];
+                if (!r->tested) continue;
+                if (r->estale_seen) cf.estale = 1;
+                if (r->write_mib_s > 0 && (cf.min_write_mibs < 0 || r->write_mib_s < cf.min_write_mibs))
+                    cf.min_write_mibs = r->write_mib_s;
+                if (r->read_mib_s > 0 && (cf.min_read_mibs < 0 || r->read_mib_s < cf.min_read_mibs))
+                    cf.min_read_mibs = r->read_mib_s;
+            }
+            char msg[512];
+            int lvl = peer_verdict(&cf, &peer_base, &peer_final, msg, sizeof(msg));
+            /* The verdict is the headline of paired mode, so make it always
+             * visible: the client filters [OK] events from compact text output,
+             * so print it directly there and feed the event stream otherwise. */
+            if (opt.output_fmt == OUTPUT_FMT_TEXT || opt.output_fmt == OUTPUT_FMT_TABLE) {
+                if (!opt.quiet)
+                    printf("%s\n", msg);
+            } else {
+                add_event(lvl ? "WARN" : "OK", msg);
+            }
+            if (peer_final.snapshot_unixtime > 0) {
+                double skew = (double)time(NULL) - peer_final.snapshot_unixtime;
+                if (skew > PEER_SKEW_WARN || skew < -PEER_SKEW_WARN)
+                    report_info("paired: peer snapshot is %.0fs old; correlation is approximate", skew);
+            }
+        } else {
+            report_warn("paired: could not fetch the final peer snapshot from %s:%d",
+                        opt.peer_host, opt.peer_port);
+        }
+    }
+
     if (opt.keep_temp) report_warn("temporary workspace kept at %s", cleanup_base);
     else { cleanup_temp_tree(); report_ok("temporary workspace removed"); }
 
@@ -1191,122 +1243,11 @@ static int run_diagnostics_for_host(const char *host) {
 
 /* ---- embedded Prometheus exporter (--listen [ADDR:]PORT) ---- */
 
-static int run_listen_mode(const char *host) {
-    int port = opt.listen_port;
-    /* Default to loopback: the exporter has no authentication, so exposing
-     * it beyond the local host must be an explicit decision. */
-    const char *addr = opt.listen_addr[0] ? opt.listen_addr : "127.0.0.1";
-    char portstr[16];
-    snprintf(portstr, sizeof(portstr), "%d", port);
-
-    struct addrinfo hints, *res = NULL;
-    memset(&hints, 0, sizeof(hints));
-    hints.ai_family   = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_flags    = AI_PASSIVE | AI_NUMERICSERV;
-    int gai = getaddrinfo(addr, portstr, &hints, &res);
-    if (gai != 0) {
-        fprintf(stderr, "Error: cannot resolve listen address %s: %s\n",
-                addr, gai_strerror(gai));
-        return 2;
-    }
-    int s = -1;
-    int bind_errno = 0;
-    for (struct addrinfo *ai = res; ai; ai = ai->ai_next) {
-        s = socket(ai->ai_family, ai->ai_socktype, ai->ai_protocol);
-        if (s < 0) { bind_errno = errno; continue; }
-        int on = 1;
-        setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-        if (ai->ai_family == AF_INET6) {
-            /* "[::]:PORT" keeps the historical dual-stack behaviour */
-            int off = 0;
-            setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
-        }
-        if (bind(s, ai->ai_addr, ai->ai_addrlen) == 0) break;
-        bind_errno = errno;
-        close(s);
-        s = -1;
-    }
-    freeaddrinfo(res);
-    if (s < 0) {
-        fprintf(stderr, "Error: cannot bind %s port %d: %s\n",
-                addr, port, strerror(bind_errno));
-        return 2;
-    }
-    if (listen(s, 16) != 0) {
-        fprintf(stderr, "Error: listen failed on %s port %d: %s\n",
-                addr, port, strerror(errno));
-        close(s);
-        return 2;
-    }
-    struct sigaction pipe_sa;
-    memset(&pipe_sa, 0, sizeof(pipe_sa));
-    pipe_sa.sa_handler = SIG_IGN;
-    sigaction(SIGPIPE, &pipe_sa, NULL);
-
-    int interval = opt.watch_interval > 0 ? opt.watch_interval : 60;
-    printf("[listen] serving Prometheus metrics on %s port %d, refreshing every %ds\n",
-           addr, port, interval);
-
-    char *snapshot = NULL;
-    int overall = 0;
-    while (!received_signal) {
-        int rc = run_diagnostics_for_host(host);
-        if (rc > overall) overall = rc;
-        free(snapshot);
-        snapshot = prometheus_snapshot(host);
-        size_t snap_len = snapshot ? strlen(snapshot) : 0;
-
-        time_t next = time(NULL) + interval;
-        while (!received_signal && time(NULL) < next) {
-            struct pollfd pfd = { .fd = s, .events = POLLIN };
-            int pr = poll(&pfd, 1, 500);
-            if (pr <= 0) continue;
-            int c = accept4(s, NULL, NULL, SOCK_CLOEXEC);
-            if (c < 0) continue;
-            /* Bound how long a slow or silent client can hold the accept loop. */
-            struct timeval cto = { .tv_sec = 5, .tv_usec = 0 };
-            setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &cto, sizeof(cto));
-            setsockopt(c, SOL_SOCKET, SO_SNDTIMEO, &cto, sizeof(cto));
-
-            char req[1024];
-            ssize_t rn = recv(c, req, sizeof(req) - 1, 0);
-            char path[256] = {0};
-            int is_get = rn > 0 &&
-                http_request_is_get(req, (size_t)rn, path, sizeof(path));
-            int metrics = is_get &&
-                (strcmp(path, "/metrics") == 0 || strcmp(path, "/") == 0);
-
-            char hdr[256];
-            if (metrics) {
-                int hl = snprintf(hdr, sizeof(hdr),
-                                  "HTTP/1.0 200 OK\r\n"
-                                  "Content-Type: text/plain; version=0.0.4; charset=utf-8\r\n"
-                                  "Content-Length: %zu\r\n"
-                                  "Connection: close\r\n\r\n", snap_len);
-                if (hl > 0) {
-                    (void)send(c, hdr, (size_t)hl, MSG_NOSIGNAL);
-                    if (snapshot) (void)send(c, snapshot, snap_len, MSG_NOSIGNAL);
-                }
-            } else {
-                const char *body = is_get ? "404 not found\n" : "405 method not allowed\n";
-                const char *status = is_get ? "404 Not Found" : "405 Method Not Allowed";
-                int hl = snprintf(hdr, sizeof(hdr),
-                                  "HTTP/1.0 %s\r\n"
-                                  "Content-Type: text/plain; charset=utf-8\r\n"
-                                  "Content-Length: %zu\r\n"
-                                  "Connection: close\r\n\r\n", status, strlen(body));
-                if (hl > 0) {
-                    (void)send(c, hdr, (size_t)hl, MSG_NOSIGNAL);
-                    (void)send(c, body, strlen(body), MSG_NOSIGNAL);
-                }
-            }
-            close(c);
-        }
-    }
-    free(snapshot);
-    close(s);
-    return overall;
+/* Re-run diagnostics and render a fresh Prometheus snapshot. Passed to the
+ * shared run_metrics_listener() as the per-interval refresh callback. */
+static char *client_metrics_refresh(const char *host) {
+    run_diagnostics_for_host(host);
+    return prometheus_snapshot(host);
 }
 
 int client_main(int argc, char **argv) {
@@ -1345,6 +1286,7 @@ int client_main(int argc, char **argv) {
         {"delay-ms",         required_argument, 0, 1020},
         {"krb5",             no_argument,       0, 1018},
         {"hosts-file",       required_argument, 0, 1023},
+        {"peer",             required_argument, 0, 1040},
         {"watch",            required_argument, 0, 1024},
         {"on-fail-exec",     required_argument, 0, 1025},
         {"config",           required_argument, 0, 1026},
@@ -1482,6 +1424,13 @@ int client_main(int argc, char **argv) {
             break;
         case 1018: opt.krb5 = 1; break;
         case 1023: opt.hosts_file = optarg; break;
+        case 1040:
+            if (parse_peer_arg(optarg, opt.peer_host, sizeof(opt.peer_host),
+                               &opt.peer_port, PEER_DEFAULT_PORT) != 0) {
+                fprintf(stderr, "invalid --peer value '%s'\n", optarg);
+                return 2;
+            }
+            break;
         case 1024:
             if (parse_ulong_arg(optarg, &value) != 0 || value < 1 || value > 86400) { fprintf(stderr, "invalid --watch: %s (1-86400 seconds)\n", optarg); return 2; }
             opt.watch_interval = (int)value;
@@ -1599,7 +1548,7 @@ int client_main(int argc, char **argv) {
 
     /* ---- embedded exporter mode (--listen) ---- */
     if (opt.listen_port > 0)
-        return run_listen_mode(host);
+        return run_metrics_listener(host, client_metrics_refresh);
 
     /* ---- watch mode ---- */
     if (opt.watch_interval > 0) {

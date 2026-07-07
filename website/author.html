@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -99,7 +99,13 @@
         </a>
         <nav class="nav__links" aria-label="primary">
           <a href="index.html">← home</a>
-          <a href="docs.html" class="nav__hide-sm">docs</a>
+          <details class="nav__drop nav__hide-sm">
+            <summary>docs</summary>
+            <div class="nav__drop-menu">
+              <a href="docs.html">client</a>
+              <a href="docs-server.html">server</a>
+            </div>
+          </details>
           <a href="author.html">author</a>
           <span class="nav__sep nav__hide-sm">│</span>
           <button class="nav__btn" type="button" id="theme-btn" aria-label="toggle theme" title="toggle theme">
@@ -301,7 +307,7 @@ SRE / DevOps · software developer
     </main>
 
     <footer class="foot">
-      <span>nfsdiag <strong>v0.13.0</strong></span>
+      <span>nfsdiag <strong>v0.22.0</strong></span>
       <span class="foot__sep">·</span>
       <span>MIT</span>
       <span class="foot__sep">·</span>

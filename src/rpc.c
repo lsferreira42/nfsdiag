@@ -248,7 +248,7 @@ static unsigned long uaddr_port(const char *uaddr) {
     return hi * 256 + lo;
 }
 
-static int rpcb_dump_services(const char *host, struct rpc_services *svc) {
+int rpcb_dump_services(const char *host, struct rpc_services *svc) {
     static const char *netids[] = {"tcp6", "tcp"};
     int added = 0;
 

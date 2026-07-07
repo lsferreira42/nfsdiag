@@ -16,3 +16,12 @@ leak-*
 .wrangler/
 .dev.vars
 .dev.vars.*
+# autoconf / build-system
+config.mk
+config.log
+config.status
+autom4te.cache/
+# eBPF generated headers
+src/bpf/vmlinux.h
+src/bpf/*.skel.h
+configure~
