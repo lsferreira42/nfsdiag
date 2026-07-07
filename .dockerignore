@@ -1,0 +1,15 @@
+.git
+build
+**/*.o
+/nfsdiag
+/config.mk
+/config.log
+/config.status
+autom4te.cache
+/compile_commands.json
+**/*.apk
+.cache
+coverage-html
+/coverage.info
+/src/bpf/vmlinux.h
+/src/bpf/nfsdiag.skel.h

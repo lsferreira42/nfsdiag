@@ -347,13 +347,13 @@ apk:
 	    --target builder \
 	    -t $(PKG_NAME)-apk-builder \
 	    -f packaging/Dockerfile.apk .
-	mkdir -p build/apk
+	mkdir -p build
 	docker run --rm \
-	    -v $$(pwd)/build/apk:/out \
+	    -v $$(pwd)/build:/out \
 	    $(PKG_NAME)-apk-builder \
 	    sh -c 'find /home/builder/packages -name "*.apk" -exec cp {} /out/ \;'
-	cp build/apk/*.apk build/ || true
-	@echo "APK: build/$(PKG_NAME)-$(VERSION)-r0.apk (approx name)"
+	@ls build/*.apk >/dev/null 2>&1 || { echo "Error: abuild produced no .apk (see the Docker build log above)"; exit 1; }
+	@echo "APK: $$(ls build/*.apk)"
 
 # Standalone, versioned, arch-named binary for direct download from releases.
 binary-dist: $(TARGET)

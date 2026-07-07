@@ -910,7 +910,7 @@ static void server_check_clients(void) {
         report_ok("clients: %d NFSv4 client%s connected", n, n == 1 ? "" : "s");
         for (int i = 0; i < n; i++) {
             char path[512], buf[4096];
-            snprintf(path, sizeof(path), "/proc/fs/nfsd/clients/%s/info", ids[i]);
+            snprintf(path, sizeof(path), "/proc/fs/nfsd/clients/%.255s/info", ids[i]);
             if (server_read_file(path, buf, sizeof(buf)) != 0)
                 continue;
             struct nfsd_client_info ci;
@@ -958,7 +958,7 @@ static void server_check_client_states(void) {
     for (int i = 0; i < n; i++) {
         char path[512];
         static char buf[262144];   /* states files can be large on busy servers */
-        snprintf(path, sizeof(path), "/proc/fs/nfsd/clients/%s/states", ids[i]);
+        snprintf(path, sizeof(path), "/proc/fs/nfsd/clients/%.255s/states", ids[i]);
         if (server_read_file(path, buf, sizeof(buf)) != 0)
             continue;
         int opens = 0, locks = 0, delegs = 0, layouts = 0;
