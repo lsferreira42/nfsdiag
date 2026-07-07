@@ -348,12 +348,18 @@ apk:
 	    -t $(PKG_NAME)-apk-builder \
 	    -f packaging/Dockerfile.apk .
 	mkdir -p build
-	docker run --rm \
-	    -v $$(pwd)/build:/out \
-	    $(PKG_NAME)-apk-builder \
-	    sh -c 'find /home/builder/packages -name "*.apk" -exec cp {} /out/ \;'
-	@ls build/*.apk >/dev/null 2>&1 || { echo "Error: abuild produced no .apk (see the Docker build log above)"; exit 1; }
-	@echo "APK: $$(ls build/*.apk)"
+	rm -rf build/apkroot
+	@cid=$$(docker create $(PKG_NAME)-apk-builder); \
+	docker cp "$$cid:/home/builder/packages" build/apkroot; \
+	docker rm "$$cid" >/dev/null; \
+	apk=$$(find build/apkroot -name '*.apk' 2>/dev/null | head -n1); \
+	if [ -z "$$apk" ]; then \
+	    echo "Error: abuild produced no .apk (see the Docker build log above)"; \
+	    rm -rf build/apkroot; exit 1; \
+	fi; \
+	cp "$$apk" build/; \
+	rm -rf build/apkroot; \
+	echo "APK: $$(ls build/*.apk)"
 
 # Standalone, versioned, arch-named binary for direct download from releases.
 binary-dist: $(TARGET)
