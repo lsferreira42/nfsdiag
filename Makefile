@@ -224,15 +224,16 @@ coverage:
 	@echo "  open coverage-html/index.html"
 
 clean:
-	rm -f $(TARGET) $(SRCDIR)/*.o build-unit-tests VERSION.tmp
-	rm -f $(SRCDIR)/bpf/*.bpf.o $(SRCDIR)/bpf/nfsdiag.skel.h
-	rm -rf build/
+	rm -f $(TARGET) $(SRCDIR)/*.o build-unit-tests VERSION.tmp compile_commands.json
+	rm -f $(SRCDIR)/bpf/*.bpf.o $(SRCDIR)/bpf/nfsdiag.skel.h $(SRCDIR)/bpf/vmlinux.h
+	rm -rf build/ coverage-html
+	rm -f coverage.info
+	find $(SRCDIR) -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
 
+# Also removes everything ./configure generated, leaving only tracked files.
 distclean: clean
-	rm -rf .cache coverage-html coverage.info
-	rm -f config.mk config.log config.status $(SRCDIR)/bpf/vmlinux.h
-	rm -rf autom4te.cache
-	find src -name '*.gcda' -o -name '*.gcno' | xargs rm -f 2>/dev/null || true
+	rm -rf .cache autom4te.cache
+	rm -f config.mk config.log config.status configure~
 
 help:
 	@echo "Targets:"

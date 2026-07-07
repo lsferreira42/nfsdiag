@@ -722,9 +722,9 @@ static int server_copy_config(const char *abs_src, const char *dst) {
         return -1;
     }
     FILE *out = fdopen(fd, "w");
-    /* fdopen() does not close the fd on failure */
-    // cppcheck-suppress doubleFree
     if (!out) {
+        /* fdopen() leaves fd open on failure, so closing it here is correct. */
+        // cppcheck-suppress doubleFree
         close(fd);
         fclose(in);
         return -1;
